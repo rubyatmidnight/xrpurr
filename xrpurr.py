@@ -20,6 +20,8 @@ from cryptography.fernet import Fernet, InvalidToken
 import urllib.request
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
+VERSION = '1.0'
+
 
 jsonRpcUrl = "https://xrplcluster.com/"
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
@@ -104,21 +106,25 @@ def print_tx_log():
     clear_screen()
     if not os.path.exists(TX_LOG_FILE):
         print("No transaction log found.")
+        pause()
         return
     try:
         with open(TX_LOG_FILE, "r") as f:
             log = json.load(f)
         if not log:
             print("Transaction log is empty.")
+            pause()
             return
         print("\nTransaction Log:")
         for entry in log[-20:]:  # Show last 20
             print(f"- {entry['timestamp']}: Sent {entry.get('amount_xrp','?')} XRP to {entry.get('destination','?')}"
                   f"{' (tag: '+str(entry['destination_tag'])+')' if entry.get('destination_tag') is not None else ''} "
                   f"Result: {entry.get('result','?')}")
+        pause()
     except Exception as e:
         print(f"Could not read transaction log: {e}")
         time.sleep(3.5)
+        pause()
 
 # a merely cute ux cliché
 def getGreeting():
@@ -534,6 +540,7 @@ def settings_menu(wallet=None):
         print("5. View transaction log")
         print("6. Delete wallet file (dangerous!)")
         print("7. Delete XRP account (permanently, send reserve) [DANGEROUS!]")
+        print("8. Show developer information and build details")
         print("b. Back to main menu")
         choice = input("Select a settings option: ").strip().lower()
         if choice == "1":
@@ -733,6 +740,7 @@ def select_frequent_address(settings):
 def show_dev_info():
     clear_screen()
     print("Dev Info:")
+    print(f"XRPurr Version: {VERSION}")
     print(f"Base directory: {BASEDIR}")
     print(f"Current Loaded Wallet: {WALLET_FILE}")
     print(f"Current Loaded Settings: {SETTINGS_FILE}")
