@@ -23,7 +23,7 @@ BASEDIR = os.path.dirname(os.path.abspath(__file__))
 
 jsonRpcUrl = "https://xrplcluster.com/"
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
-client = JsonRpcClient(testnetUrl)
+client = JsonRpcClient(jsonRpcUrl)
 
 # points to an existing saved wallet
 WALLET_FILE = os.path.join(BASEDIR, "src", "xrpurr_wallet.dat")
