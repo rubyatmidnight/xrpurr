@@ -1,0 +1,5 @@
+xrpurr_wallet.dat
+*.dat
+*.json
+xrpurr_settings.json
+xrpurr_txlog.json

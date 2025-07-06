@@ -1,0 +1,7 @@
+{   "settings": {
+        "frequent_addresses": [],
+        "never_require_dtag": false,
+        "sanity_check_dtag": true,
+        "tx_log_enabled": true
+        }
+}
