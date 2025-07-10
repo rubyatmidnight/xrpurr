@@ -22,13 +22,13 @@ import urllib.request
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 VERSION = '1.0'
 
-
 jsonRpcUrl = "https://xrplcluster.com/"
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(jsonRpcUrl)
 
-# points to an existing saved wallet
-WALLET_FILE = os.path.join(BASEDIR, "src", "xrpurr_wallet.dat")
+# Wallets directory and file management
+wallets_dir = os.path.join(BASEDIR, "wallets")
+os.makedirs(wallets_dir, exist_ok=True)
 SETTINGS_FILE = os.path.join(BASEDIR, "src", "xrpurr_settings.json")
 TX_LOG_FILE = os.path.join(BASEDIR, "src", "xrpurr_txlog.json")
 
@@ -48,7 +48,6 @@ DEFAULT_SETTINGS = {
 
 BASE_RESERVE_XRP = 1.0
 OWNER_RESERVE_XRP = 0.2
-
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -80,6 +79,31 @@ def save_settings(settings):
     except Exception as e:
         print(f"Warning: Could not save settings: {e}")
         time.sleep(3.5)
+
+def get_next_wallet_file():
+    base_wallet_file = os.path.join(wallets_dir, "xrpurr_wallet.dat")
+    if not os.path.exists(base_wallet_file):
+        return base_wallet_file
+    i = 1
+    while True:
+        candidate = os.path.join(wallets_dir, f"xrpurr_wallet_{i}.dat")
+        if not os.path.exists(candidate):
+            return candidate
+        i += 1
+
+def get_latest_wallet_file():
+    """
+    Returns the most recently created wallet file in the wallets directory,
+    or the default wallet file if it exists.
+    """
+    files = []
+    for fname in os.listdir(wallets_dir):
+        if fname.startswith("xrpurr_wallet") and fname.endswith(".dat"):
+            files.append(os.path.join(wallets_dir, fname))
+    if not files:
+        return os.path.join(wallets_dir, "xrpurr_wallet.dat")
+    files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return files[0]
 
 def log_transaction(tx_data):
     settings = load_settings()
@@ -231,33 +255,85 @@ def saveWalletSeed(seed):
     key = getFernetKeyFromPassword(password)
     f = Fernet(key)
     enc = f.encrypt(seed.encode())
-    with open(WALLET_FILE, "wb") as fp:
+    wallet_file = get_next_wallet_file()
+    with open(wallet_file, "wb") as fp:
         fp.write(enc)
-    print(f"Wallet seed encrypted and saved to {WALLET_FILE}.")
+    print(f"Wallet seed encrypted and saved to {wallet_file}.")
     clear_screen()
 
 def deleteWalletFile():
     clear_screen()
-    if os.path.exists(WALLET_FILE):
-        confirm = input(f"Are you sure you want to DELETE the wallet file '{WALLET_FILE}'? This cannot be undone! (type 'delete' to confirm): ").strip()
+    # List wallet files
+    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+    if not wallet_files:
+        print("No wallet file found to delete.")
+        clear_screen()
+        return
+    print("Wallet files in your wallets directory:")
+    for idx, fname in enumerate(wallet_files, 1):
+        print(f"  {idx}. {fname}")
+    print("a. All wallet files")
+    print("b. Back")
+    choice = input("Select wallet file to delete (number, 'a' for all, 'b' to cancel): ").strip().lower()
+    if choice == "b":
+        clear_screen()
+        return
+    if choice == "a":
+        confirm = input("Are you sure you want to DELETE ALL wallet files? This cannot be undone! (type 'deleteall' to confirm): ").strip()
+        if confirm == "deleteall":
+            for fname in wallet_files:
+                os.remove(os.path.join(wallets_dir, fname))
+            print("All wallet files deleted.")
+        else:
+            print("Deletion cancelled.")
+        clear_screen()
+        return
+    if choice.isdigit() and 1 <= int(choice) <= len(wallet_files):
+        fname = wallet_files[int(choice)-1]
+        fullpath = os.path.join(wallets_dir, fname)
+        confirm = input(f"Are you sure you want to DELETE the wallet file '{fname}'? This cannot be undone! (type 'delete' to confirm): ").strip()
         if confirm == "delete":
-            os.remove(WALLET_FILE)
+            os.remove(fullpath)
             print("Wallet file deleted.")
         else:
             print("Deletion cancelled.")
     else:
-        print("No wallet file found to delete.")
+        print("Invalid selection.")
     clear_screen()
 
 def loadWallet():
     clear_screen()
-    # Prompt for filename
-    filename = input(f"Enter wallet filename (default: {WALLET_FILE}): ").strip()
-    if not filename:
-        filename = WALLET_FILE
+    # List wallet files
+    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+    wallet_files.sort(key=lambda x: os.path.getmtime(os.path.join(wallets_dir, x)), reverse=True)
+    default_file = os.path.join(wallets_dir, "xrpurr_wallet.dat")
+    print("Wallet files in your wallets directory:")
+    if wallet_files:
+        for idx, fname in enumerate(wallet_files, 1):
+            print(f"  {idx}. {fname}")
+    else:
+        print("  (none found)")
+    print("m. Manual seed entry")
+    print("b. Back/cancel")
+    filename = None
+    choice = input(f"Select wallet file to load (number, 'm' for manual, 'b' to cancel): ").strip().lower()
+    if choice == "b":
+        clear_screen()
+        return None
+    if choice == "m":
+        filename = None
+    elif choice.isdigit() and 1 <= int(choice) <= len(wallet_files):
+        filename = os.path.join(wallets_dir, wallet_files[int(choice)-1])
+    elif not choice and os.path.exists(default_file):
+        filename = default_file
+    else:
+        print("Invalid selection.")
+        time.sleep(2)
+        clear_screen()
+        return None
 
-    if Fernet is not None and os.path.exists(filename):
-        use_file = input(f"Found encrypted wallet file '{filename}'. Load it? (y/n): ").strip().lower()
+    if filename and Fernet is not None and os.path.exists(filename):
+        use_file = input(f"Found encrypted wallet file '{os.path.basename(filename)}'. Load it? (y/n): ").strip().lower()
         if use_file in ["", "y", "yes"]:
             for attempt in range(3):
                 password = getpass.getpass("Enter password to decrypt wallet: ")
@@ -269,17 +345,18 @@ def loadWallet():
                     seed = f.decrypt(enc).decode()
                     wallet = Wallet.from_seed(seed)
                     print(f"Loaded wallet address: {wallet.address}")
+                    pause()
                     clear_screen()
                     return wallet
                 except InvalidToken:
                     print("Incorrect password.")
-                    time.sleep(3.5)
+                    pause()
                 except Exception as e:
                     print(f"Error loading wallet: {e}")
-                    time.sleep(3.5)
+                    pause()
                     break
             print("Failed to load wallet from file.")
-            time.sleep(3.5)
+            pause()
             clear_screen()
             return None
     # Fallback: manual seed entry
@@ -287,6 +364,7 @@ def loadWallet():
     try:
         wallet = Wallet.from_seed(seed)
         print(f"Loaded wallet address: {wallet.address}")
+        pause()
         if Fernet is not None:
             save = input("Save this wallet encrypted to disk for next time? (y/N): ").strip().lower()
             if save == "y":
@@ -295,7 +373,7 @@ def loadWallet():
         return wallet
     except Exception as e:
         print(f"Error loading wallet: {e}")
-        time.sleep(3.5)
+        pause()
         clear_screen()
         return None
 
@@ -742,7 +820,7 @@ def show_dev_info():
     print("Dev Info:")
     print(f"XRPurr Version: {VERSION}")
     print(f"Base directory: {BASEDIR}")
-    print(f"Current Loaded Wallet: {WALLET_FILE}")
+    print(f"Wallets directory: {wallets_dir}")
     print(f"Current Loaded Settings: {SETTINGS_FILE}")
     print(f"Tx log file: {TX_LOG_FILE}")
     print(f"XRPL client URL: {client.url}")
