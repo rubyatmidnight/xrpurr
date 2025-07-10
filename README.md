@@ -3,7 +3,7 @@
 Instructions:
 Clone this repository in cli
 ```bash
-git clone https://github.com/rubyatmidnight/xrpurr`
+git clone https://github.com/rubyatmidnight/xrpurr
 ```
 
 On Windows? Here's a cool trick. Open Powershell and type 
