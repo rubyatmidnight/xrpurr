@@ -18,13 +18,48 @@ from xrpl.transaction import submit_and_wait
 from xrpl.utils import xrp_to_drops, drops_to_xrp
 from cryptography.fernet import Fernet, InvalidToken
 import urllib.request
+import traceback  # <-- Add for debugging
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 VERSION = '1.0'
 
-jsonRpcUrl = "https://xrplcluster.com/"
+# XRPL Mainnet endpoints for redundancy
+XRPL_ENDPOINTS = [
+    "https://xrplcluster.com/",
+    "https://s1.ripple.com:51234/",
+    "https://xrpl.ws/"
+]
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
-client = JsonRpcClient(jsonRpcUrl)
+client = JsonRpcClient(XRPL_ENDPOINTS[0])
+
+def get_redundant_clients():
+    """Return a list of JsonRpcClient objects for all endpoints."""
+    return [JsonRpcClient(url) for url in XRPL_ENDPOINTS]
+
+def try_all_clients(func, *args, **kwargs):
+    """
+    Try the given function with all XRPL endpoints in order.
+    If the function returns a response with .is_successful() == True, return it.
+    If an exception occurs or .is_successful() == False, try the next endpoint.
+    Returns the first successful response, or the last response/error if all fail.
+    """
+    last_exception = None
+    last_response = None
+    for url in XRPL_ENDPOINTS:
+        try:
+            c = JsonRpcClient(url)
+            response = func(c, *args, **kwargs)
+            last_response = response
+            if hasattr(response, "is_successful") and response.is_successful():
+                if url != XRPL_ENDPOINTS[0]:
+                    print(f"Notice: Fallback XRPL endpoint used: {url}")
+                return response
+        except Exception as e:
+            last_exception = e
+            print(f"Warning: XRPL endpoint {url} failed: {e}")
+    if last_exception:
+        raise last_exception
+    return last_response
 
 # Wallets directory and file management
 wallets_dir = os.path.join(BASEDIR, "wallets")
@@ -43,7 +78,8 @@ DEFAULT_SETTINGS = {
     "frequent_addresses": [],  # List of dicts: {nickname, address, tags: [int]}
     "never_require_dtag": False,
     "sanity_check_dtag": True,
-    "tx_log_enabled": True
+    "tx_log_enabled": True,
+    "debug": False
 }
 
 BASE_RESERVE_XRP = 1.0
@@ -92,10 +128,6 @@ def get_next_wallet_file():
         i += 1
 
 def get_latest_wallet_file():
-    """
-    Returns the most recently created wallet file in the wallets directory,
-    or the default wallet file if it exists.
-    """
     files = []
     for fname in os.listdir(wallets_dir):
         if fname.startswith("xrpurr_wallet") and fname.endswith(".dat"):
@@ -378,20 +410,21 @@ def loadWallet():
         return None
 
 def getBalance(address):
-    try:
+    def _get_balance(client_obj, address):
         acctInfo = AccountInfo(
             account=address,
             ledger_index="validated"
         )
-        response = client.request(acctInfo)
-        
-        if response.is_successful():
+        return client_obj.request(acctInfo)
+    try:
+        response = try_all_clients(_get_balance, address)
+        if response and response.is_successful():
             balance = int(response.result["account_data"]["Balance"])
             balanceXrp = drops_to_xrp(str(balance))
             print(f"Balance for {address}: {balanceXrp} XRP")
             return balance
         else:
-            print(f"Error getting balance: {response.result}")
+            print(f"Error getting balance: {getattr(response, 'result', response)}")
             time.sleep(3.5)
             return 0
     except Exception as e:
@@ -428,23 +461,32 @@ def fetch_dtag_accounts_without_flag():
         return set()
 
 def sendXrp(wallet, destination, amountXrp, destinationTag=None):
-    try:
+    def _send_payment(client_obj, wallet, destination, amountXrp, destinationTag):
         paymentParams = {
             "account": wallet.address,
             "amount": xrp_to_drops(amountXrp),
             "destination": destination
         }
-
         if destinationTag is not None:
             paymentParams["destination_tag"] = int(destinationTag)
-            print(f"Including destination tag: {destinationTag}")
-        
         payment = Payment(**paymentParams)
-        
-        # Submit transaction
-        response = submit_and_wait(payment, client, wallet)
-        
-        if response.is_successful():
+        return submit_and_wait(payment, client_obj, wallet)
+
+    try:
+        settings = load_settings()
+        debug = settings.get("debug", False)
+        if debug:
+            print("DEBUG: sendXrp called with params:")
+            print(f"  wallet.address: {getattr(wallet, 'address', None)}")
+            print(f"  destination: {destination}")
+            print(f"  amountXrp: {amountXrp}")
+            print(f"  destinationTag: {destinationTag}")
+
+        response = try_all_clients(_send_payment, wallet, destination, amountXrp, destinationTag)
+        if debug:
+            print("DEBUG: Response from submit_and_wait:", response)
+
+        if response and response.is_successful():
             print("Transaction successful!")
             print(f"Hash: {response.result['hash']}")
             print(f"Result: {response.result['meta']['TransactionResult']}")
@@ -459,20 +501,29 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
             })
             pause()
         else:
-            print(f"Transaction failed: {response.result}")
+            print(f"Transaction failed: {getattr(response, 'result', response)}")
             log_transaction({
                 "destination": destination,
                 "amount_xrp": amountXrp,
                 "destination_tag": destinationTag,
                 "result": "FAILED",
-                "error": str(response.result)
+                "error": str(getattr(response, 'result', response))
             })
             pause()
         clear_screen()
         return response
-        
+
     except Exception as e:
+        settings = load_settings()
+        debug = settings.get("debug", False)
         print(f"Error sending XRP: {e}")
+        if debug:
+            print("DEBUG: Exception traceback:")
+            traceback.print_exc()
+            print("DEBUG: wallet:", wallet)
+            print("DEBUG: destination:", destination)
+            print("DEBUG: amountXrp:", amountXrp)
+            print("DEBUG: destinationTag:", destinationTag)
         log_transaction({
             "destination": destination,
             "amount_xrp": amountXrp,
@@ -489,16 +540,28 @@ def sendAccountDelete(wallet, destination):
     Sends an AccountDelete transaction to delete the loaded wallet's account and transfer the remaining XRP reserve to the destination.
     The amount sent will be the full balance minus the network fee (0.2 XRP).
     """
-    try:
-        clear_screen()
-        print(f"\nPreparing to delete account {wallet.address} and send the XRP reserve to {destination}...")
+    def _get_account_info(client_obj, wallet):
         acctInfo = AccountInfo(
             account=wallet.address,
             ledger_index="validated"
         )
-        response = client.request(acctInfo)
-        if not response.is_successful():
-            print(f"Error getting account info: {response.result}")
+        return client_obj.request(acctInfo)
+
+    def _submit_account_delete(client_obj, wallet, destination):
+        tx = AccountDelete(
+            account=wallet.address,
+            destination=destination
+        )
+        return submit_and_wait(tx, client_obj, wallet)
+
+    try:
+        clear_screen()
+        print(f"\nPreparing to delete account {wallet.address} and send the XRP reserve to {destination}...")
+
+        # Try all endpoints for account info
+        response = try_all_clients(_get_account_info, wallet)
+        if not response or not response.is_successful():
+            print(f"Error getting account info: {getattr(response, 'result', response)}")
             time.sleep(3.5)
             clear_screen()
             return False
@@ -508,10 +571,6 @@ def sendAccountDelete(wallet, destination):
         owner_count = int(account_data.get("OwnerCount", 0))
 
         # Calculate reserve using current rules (Mainnet as of 2024-06)
-        # Base reserve: 1 XRP
-        # Owner reserve: 0.2 XRP per object
-        # Exception: first two trust lines do not require owner reserve if only base reserve is present
-        # (We will show the calculation, but cannot check trust line details here, so warn user)
         min_reserve_xrp = BASE_RESERVE_XRP + OWNER_RESERVE_XRP * max(0, owner_count)
         min_reserve_drops = int(xrp_to_drops(min_reserve_xrp))
         print(f"Account balance: {drops_to_xrp(str(balance_drops))} XRP")
@@ -547,14 +606,10 @@ def sendAccountDelete(wallet, destination):
             clear_screen()
             return False
 
-        # Build and submit AccountDelete transaction
-        tx = AccountDelete(
-            account=wallet.address,
-            destination=destination
-        )
+        # Try all endpoints for AccountDelete
         print("Submitting AccountDelete transaction...")
-        resp = submit_and_wait(tx, client, wallet)
-        if resp.is_successful():
+        resp = try_all_clients(_submit_account_delete, wallet, destination)
+        if resp and resp.is_successful():
             print("AccountDelete transaction successful!")
             print(f"Hash: {resp.result['hash']}")
             print(f"Result: {resp.result['meta']['TransactionResult']}")
@@ -570,19 +625,24 @@ def sendAccountDelete(wallet, destination):
             clear_screen()
             return True
         else:
-            print(f"AccountDelete failed: {resp.result}")
+            print(f"AccountDelete failed: {getattr(resp, 'result', resp)}")
             log_transaction({
                 "destination": destination,
                 "amount_xrp": drops_to_xrp(str(amount_to_send_drops)),
                 "account_delete": True,
                 "result": "FAILED",
-                "error": str(resp.result)
+                "error": str(getattr(resp, 'result', resp))
             })
             time.sleep(3.5)
             clear_screen()
             return False
     except Exception as e:
+        settings = load_settings()
+        debug = settings.get("debug", False)
         print(f"Error during account deletion: {e}")
+        if debug:
+            print("DEBUG: Exception traceback:")
+            traceback.print_exc()
         log_transaction({
             "destination": destination,
             "account_delete": True,
@@ -603,6 +663,7 @@ def getUserChoice():
         return choice
     except KeyboardInterrupt:
         print("\nGoodbye!")
+        pause()
         clear_screen()
         exit(0)
 
@@ -619,6 +680,7 @@ def settings_menu(wallet=None):
         print("6. Delete wallet file (dangerous!)")
         print("7. Delete XRP account (permanently, send reserve) [DANGEROUS!]")
         print("8. Show developer information and build details")
+        print("9. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
         print("b. Back to main menu")
         choice = input("Select a settings option: ").strip().lower()
         if choice == "1":
@@ -663,12 +725,14 @@ def settings_menu(wallet=None):
             print("If you have only two trust lines and no other objects, the reserve may be lower due to XRPL rules. If deletion fails, remove objects and try again.")
             # Show the amount to be sent (full balance minus 0.2 XRP)
             try:
-                acctInfo = AccountInfo(
-                    account=wallet.address,
-                    ledger_index="validated"
-                )
-                response = client.request(acctInfo)
-                if response.is_successful():
+                def _get_account_info(client_obj, wallet):
+                    acctInfo = AccountInfo(
+                        account=wallet.address,
+                        ledger_index="validated"
+                    )
+                    return client_obj.request(acctInfo)
+                response = try_all_clients(_get_account_info, wallet)
+                if response and response.is_successful():
                     account_data = response.result["account_data"]
                     balance_drops = int(account_data["Balance"])
                     network_fee_xrp = 0.2
@@ -679,7 +743,12 @@ def settings_menu(wallet=None):
                     print("Could not fetch account balance for preview.")
                     time.sleep(3.5)
             except Exception as e:
+                settings = load_settings()
+                debug = settings.get("debug", False)
                 print(f"Could not fetch account balance for preview: {e}")
+                if debug:
+                    print("DEBUG: Exception traceback:")
+                    traceback.print_exc()
                 time.sleep(3.5)
             confirm = input("Type 'IAMDELETINGMYWALLET' (exactly) to confirm: ").strip()
             if confirm != "IAMDELETINGMYWALLET":
@@ -693,6 +762,10 @@ def settings_menu(wallet=None):
                 pause()
         elif choice == "8":
             show_dev_info()
+        elif choice == "9":
+            settings["debug"] = not settings.get("debug", False)
+            print(f"Debug output set to: {'ON' if settings['debug'] else 'OFF'}")
+            save_settings(settings)
         elif choice == "b":
             clear_screen()
             break
@@ -823,7 +896,7 @@ def show_dev_info():
     print(f"Wallets directory: {wallets_dir}")
     print(f"Current Loaded Settings: {SETTINGS_FILE}")
     print(f"Tx log file: {TX_LOG_FILE}")
-    print(f"XRPL client URL: {client.url}")
+    print(f"XRPL client URLs: {', '.join(XRPL_ENDPOINTS)}")
     print(f"Python version: {os.sys.version}")
     print(f"Developer Info: ruby")
     print(f"Repo: https://github.com/rubyatmidnight/xrpurr")
@@ -1025,6 +1098,10 @@ def send_xrp_manual(wallet, settings):
 
             confirm = input("Confirm transaction? (y/n): ").strip().lower()
             if confirm == 'y':
+                settings = load_settings()
+                debug = settings.get("debug", False)
+                if debug:
+                    print("DEBUG: About to call sendXrp from send_xrp_manual")
                 sendXrp(wallet, dest, amt, destTag)
             else:
                 print("Transaction cancelled.")
@@ -1038,7 +1115,12 @@ def send_xrp_manual(wallet, settings):
             clear_screen()
             return
         except Exception as e:
+            settings = load_settings()
+            debug = settings.get("debug", False)
             print(f"Error: {e}")
+            if debug:
+                print("DEBUG: Exception traceback:")
+                traceback.print_exc()
             time.sleep(3.5)
             clear_screen()
             return
@@ -1113,6 +1195,10 @@ def send_xrp_saved(wallet, settings):
 
                 confirm = input("Confirm transaction? (y/n): ").strip().lower()
                 if confirm == 'y':
+                    settings = load_settings()
+                    debug = settings.get("debug", False)
+                    if debug:
+                        print("DEBUG: About to call sendXrp from send_xrp_saved")
                     sendXrp(wallet, dest, amt, destTag)
                 else:
                     print("Transaction cancelled.")
@@ -1131,7 +1217,12 @@ def send_xrp_saved(wallet, settings):
             clear_screen()
             return
         except Exception as e:
+            settings = load_settings()
+            debug = settings.get("debug", False)
             print(f"Error: {e}")
+            if debug:
+                print("DEBUG: Exception traceback:")
+                traceback.print_exc()
             time.sleep(3.5)
             clear_screen()
             return

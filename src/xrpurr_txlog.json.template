@@ -1,0 +1,18 @@
+[
+  {
+    "timestamp": "2024-06-07T12:34:56.789123",
+    "destination": "rEXAMPLEADDRESS",
+    "amount_xrp": 2.0,
+    "destination_tag": 12345,
+    "hash": "ABCDEF123456...",
+    "result": "tesSUCCESS"
+  },
+  {
+    "timestamp": "...",
+    "destination": "...",
+    "amount_xrp": "...",
+    "destination_tag": "...",
+    "result": "FAILED",
+    "error": "..."
+  }
+]
