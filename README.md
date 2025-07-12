@@ -1,5 +1,10 @@
 # xrpurr
 
+## Updates
+
+7/11/2025:
+I had issues with the main xrpl node today, and couldn't sign any transactions. So I had to add some redundancy when it fails to send a transaction, it will attempt to connect to a different node and send it. 
+
 Instructions:
 Clone this repository in cli
 ```bash
