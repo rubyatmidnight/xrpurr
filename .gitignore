@@ -4,3 +4,4 @@ xrpurr_wallet.dat
 xrpurr_settings.json
 xrpurr_txlog.json
 wallets/
+.wallets/

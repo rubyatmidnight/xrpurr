@@ -1,5 +1,15 @@
 # xrpurr
 
+## Updates
+
+7/16/2025:
+Fixed json txlog issue (it will no longer error or malform i hope!)
+Now show spendable balance on send xrp screen (doesnt include reserve amount in total)
+
+
+7/11/2025:
+I had issues with the main xrpl node today, and couldn't sign any transactions. So I had to add some redundancy when it fails to send a transaction, it will attempt to connect to a different node and send it. 
+
 Instructions:
 Clone this repository in cli
 ```bash
@@ -21,14 +31,14 @@ function xrp {
 then, when you type 'xrp' by itself into Powershell, you will instantly run it. 
 ## Features
 
-- Create new XRP wallets (with secure, encrypted seed storage)
-- Load and manage existing wallets (including encrypted files)
-- Send XRP to any address, with destination tag support and safety checks, plus a check on some addresses which require them but don't enforce it on the network
-- Manage frequent addresses for quick access
-- View your wallet balance and transaction log
-- Delete wallet files or even accountdelete your XRP account (with reserve return) easily, no extra-utility or software required
-- Vanity address generator (hidden option or included as a separate file)
-- Settings menu for advanced options
+- Create new XRP wallets (with secure, encrypted seed storage using Fernet keys)
+- Load and manage existing valid XRP wallet seeds
+- Send XRP to any address, with destination tag support and safety checks, plus a check on some addresses which require them but don't enforce it on the network. These warnings may optionally be turned off
+- Manage frequent addresses for quick access. Able to save multiple different tags per address for quick selection, like oldschool speed-dial
+- View your wallet balance and transaction log easily
+- Delete wallet files or even accountdelete your XRP account (with reserve return) easily, no extra-utility or software required. Decrypt wallet files if you have the password
+- Vanity address generator (hidden option or included as a separate file with multithreading ability)
+- Settings menu for advanced options and debugging display
 
 
 

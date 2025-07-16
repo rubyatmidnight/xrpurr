@@ -147,8 +147,12 @@ def log_transaction(tx_data):
     }
     try:
         if os.path.exists(TX_LOG_FILE):
-            with open(TX_LOG_FILE, "r") as f:
-                log = json.load(f)
+            try:
+                with open(TX_LOG_FILE, "r") as f:
+                    log = json.load(f)
+            except Exception:
+                print("Warning: Transaction log corrupted, resetting log file, nya~")
+                log = []
         else:
             log = []
         log.append(log_entry)
@@ -156,7 +160,7 @@ def log_transaction(tx_data):
             json.dump(log, f, indent=2)
     except Exception as e:
         print(f"Warning: Could not log transaction: {e}")
-        time.sleep(3.5)
+        pause()
 
 def print_tx_log():
     clear_screen()
@@ -1076,7 +1080,15 @@ def send_xrp_manual(wallet, settings):
                 time.sleep(3.5)
                 clear_screen()
                 return
-
+            try:
+                bal = getBalance(wallet.address)
+                bal_xrp = float(drops_to_xrp(str(bal)))
+                spendable = max(0, bal_xrp - 1.0)
+                print(f"Spendable: {spendable} XRP")
+            except Exception as e:
+                print(f"Could not fetch balance: {e}")
+                pause()
+            
             amtInput = input("Amount in XRP: ").strip()
             if amtInput.lower() in ['q', 'quit']:
                 clear_screen()
@@ -1175,7 +1187,15 @@ def send_xrp_saved(wallet, settings):
                         clear_screen()
                         return
                 # else: no tags, destTag stays None
-
+                try:
+                    bal = getBalance(wallet.address)
+                    bal_xrp = float(drops_to_xrp(str(bal)))
+                    spendable = max(0, bal_xrp - 1.0)
+                    print(f"Spendable balance: {spendable} XRP")
+                except Exception as e:
+                    print(f"Could not fetch balance: {e}")
+                    pause()
+                
                 amtInput = input("Amount in XRP: ").strip()
                 if amtInput.lower() in ['q', 'quit']:
                     clear_screen()
