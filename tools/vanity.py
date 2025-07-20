@@ -5,7 +5,7 @@ import getpass
 import string
 
 def showAllowedChars():
-    allowed = "r + base58check (no 0, O, I, l), length 25-35"
+    allowed = "r + base58check (no 0, O, I, l), length 25-35. More than 4-5 characters is increasingly difficult to find a match for."
     chars = "r" + ''.join([c for c in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"])
     print(f"Allowed characters for XRP addresses:\n{chars}\n\nSummary: {allowed}")
 
