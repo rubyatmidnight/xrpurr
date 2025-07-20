@@ -40,7 +40,7 @@ def saveEncryptedSeed(seed, filename="vanity_wallet.dat"):
 
 def main():
     showAllowedChars()
-    prefix = input("Enter desired prefix (e.g., rMIAcat): ").strip()
+    prefix = input("Enter desired prefix (e.g., rMiaCat): ").strip()
     if not prefix.startswith("r") or len(prefix) < 2:
         print("Prefix must start with 'r' and be at least 2 chars."); return
     caseSel = input("Case sensitive match? (y/N): ").strip().lower()
