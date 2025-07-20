@@ -8,7 +8,7 @@ import hashlib
 import base64
 import getpass
 import json
-import time  # fix: import time for time.time()
+import time 
 from datetime import datetime
 from xrpl.wallet import Wallet
 from xrpl.clients import JsonRpcClient
@@ -18,12 +18,12 @@ from xrpl.transaction import submit_and_wait
 from xrpl.utils import xrp_to_drops, drops_to_xrp
 from cryptography.fernet import Fernet, InvalidToken
 import urllib.request
-import traceback  # <-- Add for debugging
+import traceback  
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 VERSION = '1.0'
 
-# XRPL Mainnet endpoints for redundancy
+# extra XRPL Mainnet endpoints for redundancy!
 XRPL_ENDPOINTS = [
     "https://xrplcluster.com/",
     "https://s1.ripple.com:51234/",
@@ -37,12 +37,7 @@ def get_redundant_clients():
     return [JsonRpcClient(url) for url in XRPL_ENDPOINTS]
 
 def try_all_clients(func, *args, **kwargs):
-    """
-    Try the given function with all XRPL endpoints in order.
-    If the function returns a response with .is_successful() == True, return it.
-    If an exception occurs or .is_successful() == False, try the next endpoint.
-    Returns the first successful response, or the last response/error if all fail.
-    """
+    # try all XRPL endpoints in order, may cause lag. Sometimes it sends before it even says it's done
     last_exception = None
     last_response = None
     for url in XRPL_ENDPOINTS:
@@ -61,7 +56,7 @@ def try_all_clients(func, *args, **kwargs):
         raise last_exception
     return last_response
 
-# Wallets directory and file management
+# Wallets directory and file management is not great 
 wallets_dir = os.path.join(BASEDIR, "wallets")
 os.makedirs(wallets_dir, exist_ok=True)
 SETTINGS_FILE = os.path.join(BASEDIR, "src", "xrpurr_settings.json")
@@ -82,6 +77,7 @@ DEFAULT_SETTINGS = {
     "debug": False
 }
 
+# if this ever changes it needs to be updated
 BASE_RESERVE_XRP = 1.0
 OWNER_RESERVE_XRP = 0.2
 
@@ -151,7 +147,7 @@ def log_transaction(tx_data):
                 with open(TX_LOG_FILE, "r") as f:
                     log = json.load(f)
             except Exception:
-                print("Warning: Transaction log corrupted, resetting log file, nya~")
+                print("Warning: Transaction log corrupted, resetting log file.")
                 log = []
         else:
             log = []
