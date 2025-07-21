@@ -719,7 +719,8 @@ def settings_menu(wallet=None):
                 continue
             # Confirm again
             print(f"\nYou are about to delete your XRP account and send the reserve to: {dest}")
-            print("This is IRREVERSIBLE. You will lose access to this account and its address forever.")
+            print("This action removes the reserve amount from your account and sends it to the destination address.")
+            print("This action is not permanent, but the address must be re-activated by sending another reserve minimum of XRP to the address before the account can be used again.")
             print("For more info, see: https://xrpl.org/accountdelete.html")
             print(f"Reserve calculation: Base Reserve = {BASE_RESERVE_XRP} XRP, Owner Reserve = {OWNER_RESERVE_XRP} XRP per object.")
             print("If you have only two trust lines and no other objects, the reserve may be lower due to XRPL rules. If deletion fails, remove objects and try again.")
@@ -758,7 +759,7 @@ def settings_menu(wallet=None):
             # Final confirmation
             result = sendAccountDelete(wallet, dest)
             if result:
-                print("Account deletion process complete. You may now delete your wallet file from disk if you wish.")
+                print("Account deletion process complete. You may now delete your wallet file from disk if you wish, or retain it for later re-activation.")
                 pause()
         elif choice == "8":
             show_dev_info()
