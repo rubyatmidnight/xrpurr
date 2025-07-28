@@ -44,23 +44,61 @@ then, when you type 'xrp' by itself into Powershell, you will instantly run it.
 
 ## Usage
 
-1. **Install dependencies:**
-   ```bash
-   pip install xrpl cryptography
-   ```
+### For Beginners & Non-Power Users
 
-2. **Run the wallet:**
+1. **Install Python:**
+   - Go to [python.org/downloads](https://www.python.org/downloads/) and download Python 3.7 or newer for your operating system.
+   - Run the installer. **Be sure to check the box that says "Add Python to PATH"** before clicking "Install Now".
+
+2. **Download xrpurr:**
+   - Click the green "Code" button on the [GitHub page](https://github.com/rubyatmidnight/xrpurr) and choose "Download ZIP".
+   - Extract the ZIP file to a folder you can find easily (like your Desktop).
+
+3. **Open a Terminal or Command Prompt:**
+   - **Windows:** Press `Win + R`, type `cmd`, and press Enter.
+   - **Mac:** Open "Terminal" from Applications > Utilities.
+   - **Linux:** Open your terminal app.
+
+4. **Navigate to the xrpurr folder:**
+   - Type `cd Desktop\xrpurr-main` (or wherever you extracted it) and press Enter.
+
+5. **Install dependencies:**
+   ```bash
+   pip install xrpl cryptography --break
+   ```
+   - If you get an error, try `pip3` instead of `pip`.
+
+6. **Run the wallet:**
    ```bash
    python xrpurr.py
    ```
+   - If you get an error, try `python3 xrpurr.py`.
 
-3. **Follow the on-screen menu!**  
+7. **Follow the on-screen menu!**  
    - Load or create a wallet  
    - Send XRP  
    - Manage addresses and settings  
    - View logs and balances
 
+---
 
+### For Power Users
+
+1. **Clone the repo:**
+   ```bash
+   git clone https://github.com/rubyatmidnight/xrpurr
+   cd xrpurr
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install xrpl cryptography --break
+   ```
+
+3. **Run the wallet:**
+   ```bash
+   python xrpurr.py
+   ```
 
 ## Considerations
 
