@@ -2,6 +2,9 @@
 
 ## Updates
 
+8/7/2025: 
+Added validation for instances where the node fails, it falls back, but the node actually didn't fail; and it ends up double sending. This seemed to happen in fringe cases where the primary node. I already pushed an update which should solve this, but be wary.
+
 7/16/2025:
 Fixed json txlog issue (it will no longer error or malform i hope!)
 Now show spendable balance on send xrp screen (doesnt include reserve amount in total)
