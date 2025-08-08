@@ -40,9 +40,17 @@ def try_all_clients(func, *args, **kwargs):
     # try all XRPL endpoints in order, may cause lag. Sometimes it sends before it even says it's done
     last_exception = None
     last_response = None
-    for url in XRPL_ENDPOINTS:
+    txHash = kwargs.pop("txHash", None)
+    txSeq = kwargs.pop("txSeq", None)
+    txAccount = kwargs.pop("txAccount", None)
+    for idx, url in enumerate(XRPL_ENDPOINTS):
         try:
             c = JsonRpcClient(url)
+            # Before fallback, check if txn is validated
+            if idx > 0 and txHash and txAccount:
+                if isTxnValidated(c, txHash, txAccount, txSeq):
+                    print(f"Transaction already validated on fallback check at {url}!")
+                    return last_response
             response = func(c, *args, **kwargs)
             last_response = response
             if hasattr(response, "is_successful") and response.is_successful():
@@ -55,6 +63,27 @@ def try_all_clients(func, *args, **kwargs):
     if last_exception:
         raise last_exception
     return last_response
+
+def isTxnValidated(client, txHash, account, seq=None):
+    # Check if txn is in validated ledger
+    try:
+        req = {
+            "method": "tx",
+            "params": [{"transaction": txHash, "binary": False}]
+        }
+        resp = client.request(req)
+        result = resp.result
+        if result.get("validated") and result.get("meta", {}).get("TransactionResult") == "tesSUCCESS":
+            # Optionally check sequence
+            if seq is not None and result.get("Sequence") != seq:
+                return False
+            # Confirm account matches
+            if result.get("Account") != account:
+                return False
+            return True
+        return False
+    except Exception:
+        return False
 
 # Wallets directory and file management is not great 
 wallets_dir = os.path.join(BASEDIR, "wallets")
@@ -482,7 +511,24 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
             print(f"  amountXrp: {amountXrp}")
             print(f"  destinationTag: {destinationTag}")
 
-        response = try_all_clients(_send_payment, wallet, destination, amountXrp, destinationTag)
+        # Prepare tx hash and sequence for fallback check
+        paymentParams = {
+            "account": wallet.address,
+            "amount": xrp_to_drops(amountXrp),
+            "destination": destination
+        }
+        if destinationTag is not None:
+            paymentParams["destination_tag"] = int(destinationTag)
+        payment = Payment(**paymentParams)
+        txSeq = getattr(payment, "sequence", None)
+        txAccount = wallet.address
+        txHash = None
+        try:
+            txHash = payment.hash()
+        except Exception:
+            pass
+
+        response = try_all_clients(_send_payment, wallet, destination, amountXrp, destinationTag, txHash=txHash, txSeq=txSeq, txAccount=txAccount)
         if debug:
             print("DEBUG: Response from submit_and_wait:", response)
 
