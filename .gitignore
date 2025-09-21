@@ -5,3 +5,4 @@ xrpurr_settings.json
 xrpurr_txlog.json
 wallets/
 .wallets/
+.cursor
