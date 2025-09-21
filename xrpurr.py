@@ -823,38 +823,308 @@ def settings_menu(wallet=None):
         else:
             print("Invalid option.")
             time.sleep(2)
-            clear_screen()
 
 # --- Submenu stubs ---
 def manage_frequent_addresses_menu():
-    # extensible: implement address management
-    print("Frequent address management (stub)")
-    pause()
+    settings = load_settings()
+    while True:
+        clear_screen()
+        fa = settings.get("frequent_addresses", [])
+        print("\nFrequent Addresses:")
+        if not fa:
+            print("  (none)")
+        else:
+            for idx, entry in enumerate(fa):
+                tags = entry.get("tags", [])
+                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+                print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
+        print("a. Add new address")
+        print("e. Edit address")
+        print("d. Delete address")
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "a":
+            nickname = input("Enter nickname: ").strip()
+            address = input("Enter address: ").strip()
+            tags_input = input("Enter tags (comma separated, or leave blank): ").strip()
+            tags = []
+            if tags_input:
+                for t in tags_input.split(","):
+                    t = t.strip()
+                    if t.isdigit():
+                        tags.append(int(t))
+            fa.append({"nickname": nickname, "address": address, "tags": tags})
+            settings["frequent_addresses"] = fa
+            save_settings(settings)
+            print("Address added.")
+        elif choice == "e":
+            idx = input("Enter number to edit: ").strip()
+            if idx.isdigit() and 1 <= int(idx) <= len(fa):
+                idx = int(idx) - 1
+                entry = fa[idx]
+                print(f"Editing {entry['nickname']} - {entry['address']}")
+                new_nick = input(f"New nickname (or Enter to keep '{entry['nickname']}'): ").strip()
+                new_addr = input(f"New address (or Enter to keep '{entry['address']}'): ").strip()
+                new_tags = input(f"New tags (comma separated, or Enter to keep '{', '.join(str(t) for t in entry.get('tags', []))}'): ").strip()
+                if new_nick:
+                    entry['nickname'] = new_nick
+                if new_addr:
+                    entry['address'] = new_addr
+                if new_tags:
+                    tags = []
+                    for t in new_tags.split(","):
+                        t = t.strip()
+                        if t.isdigit():
+                            tags.append(int(t))
+                    entry['tags'] = tags
+                fa[idx] = entry
+                settings["frequent_addresses"] = fa
+                save_settings(settings)
+                print("Address updated.")
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "d":
+            idx = input("Enter number to delete: ").strip()
+            if idx.isdigit() and 1 <= int(idx) <= len(fa):
+                idx = int(idx) - 1
+                confirm = input(f"Delete {fa[idx]['nickname']} ({fa[idx]['address']})? (y/N): ").strip().lower()
+                if confirm == "y":
+                    del fa[idx]
+                    settings["frequent_addresses"] = fa
+                    save_settings(settings)
+                    print("Deleted.")
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
 
 def destination_tag_settings_menu():
-    # extensible: implement dtag toggles
-    print("Destination tag settings (stub)")
-    pause()
+    settings = load_settings()
+    while True:
+        clear_screen()
+        print("\nDestination Tag Settings:")
+        print("1. Toggle 'Never require destination tag' (currently: {})".format("ON" if settings.get("never_require_dtag") else "OFF"))
+        print("2. Toggle destination tag sanity check (currently: {})".format("ON" if settings.get("sanity_check_dtag") else "OFF"))
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "1":
+            settings["never_require_dtag"] = not settings.get("never_require_dtag", False)
+            print(f"'Never require dtag' set to: {'ON' if settings['never_require_dtag'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "2":
+            settings["sanity_check_dtag"] = not settings.get("sanity_check_dtag", True)
+            print(f"Sanity check for destination tag set to: {'ON' if settings['sanity_check_dtag'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
 
 def transaction_log_settings_menu():
-    # extensible: implement log view/reset/clear/toggle
-    print("Transaction log settings (stub)")
-    pause()
+    settings = load_settings()
+    while True:
+        clear_screen()
+        print("\nTransaction Log Settings:")
+        print("1. View transaction log")
+        print("2. Reset & archive transaction log")
+        print("3. Force clear transaction log")
+        print("4. Enable/disable transaction logging (currently: {})".format("ON" if settings.get("tx_log_enabled") else "OFF"))
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "1":
+            print_tx_log()
+        elif choice == "2":
+            archive_log()
+            print("Transaction log archived and reset.")
+            with open(TX_LOG_FILE, "w") as f:
+                json.dump([], f)
+            pause()
+        elif choice == "3":
+            with open(TX_LOG_FILE, "w") as f:
+                json.dump([], f)
+            print("Transaction log force cleared.")
+            pause()
+        elif choice == "4":
+            settings["tx_log_enabled"] = not settings.get("tx_log_enabled", True)
+            print(f"Transaction log set to: {'ON' if settings['tx_log_enabled'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
 
 def delete_wallet_account_menu(wallet):
-    # extensible: implement accountdelete and secure wallet deletion
-    print("Delete wallet/account menu (stub)")
-    pause()
+    while True:
+        clear_screen()
+        print("\nDelete Wallet/Account Menu:")
+        print("1. AccountDelete XRP address")
+        print("2. Permanently delete current wallet (secure wipe)")
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "1":
+            # AccountDelete flow
+            if wallet is None:
+                print("No wallet loaded/unlocked. Please load your wallet in the main menu and return here if you wish to delete the account.")
+                time.sleep(3.5)
+                continue
+            dest = input("Enter destination address to receive the XRP reserve (or 'q' to cancel): ").strip()
+            if dest.lower() in ['q', 'quit']:
+                continue
+            if not dest or not dest.startswith("r") or len(dest) < 25:
+                print("Invalid destination address.")
+                time.sleep(3.5)
+                continue
+            print(f"\nYou are about to delete your XRP account and send the reserve to: {dest}")
+            print("This action removes the reserve amount from your account and sends it to the destination address.")
+            print("This action is not permanent, but the address must be re-activated by sending another reserve minimum of XRP to the address before the account can be used again.")
+            print("For more info, see: https://xrpl.org/accountdelete.html")
+            print(f"Reserve calculation: Base Reserve = {BASE_RESERVE_XRP} XRP, Owner Reserve = {OWNER_RESERVE_XRP} XRP per object.")
+            try:
+                def _get_account_info(client_obj, wallet):
+                    acctInfo = AccountInfo(
+                        account=wallet.address,
+                        ledger_index="validated"
+                    )
+                    return client_obj.request(acctInfo)
+                response = try_all_clients(_get_account_info, wallet)
+                if response and response.is_successful():
+                    account_data = response.result["account_data"]
+                    balance_drops = int(account_data["Balance"])
+                    network_fee_xrp = 0.2
+                    network_fee_drops = int(xrp_to_drops(network_fee_xrp))
+                    amount_to_send_drops = balance_drops - network_fee_drops
+                    print(f"Amount to be sent: {drops_to_xrp(str(amount_to_send_drops))} XRP (full balance minus 0.2 XRP network fee)")
+                else:
+                    print("Could not fetch account balance for preview.")
+                    time.sleep(3.5)
+            except Exception as e:
+                print(f"Could not fetch account balance for preview: {e}")
+                time.sleep(3.5)
+            confirm = input("Type 'IAMDELETINGMYWALLET' (exactly) to confirm: ").strip()
+            if confirm != "IAMDELETINGMYWALLET":
+                print("Account deletion cancelled.")
+                time.sleep(3.5)
+                continue
+            result = sendAccountDelete(wallet, dest)
+            if result:
+                print("Account deletion process complete. You may now delete your wallet file from disk if you wish, or retain it for later re-activation.")
+                pause()
+        elif choice == "2":
+            # Secure wallet deletion
+            print("Permanently delete current wallet (secure wipe)")
+            wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+            if not wallet_files:
+                print("No wallet file found to delete.")
+                pause()
+                continue
+            print("Wallet files in your wallets directory:")
+            for idx, fname in enumerate(wallet_files, 1):
+                print(f"  {idx}. {fname}")
+            idx = input("Select wallet file to delete (number): ").strip()
+            if idx.isdigit() and 1 <= int(idx) <= len(wallet_files):
+                fname = wallet_files[int(idx)-1]
+                fullpath = os.path.join(wallets_dir, fname)
+                confirm = input(f"Are you sure you want to DELETE the wallet file '{fname}'? This cannot be undone! (type 'delete' to confirm): ").strip()
+                if confirm == "delete":
+                    # Secure wipe: overwrite file with zeros, then delete
+                    try:
+                        with open(fullpath, "r+b") as f:
+                            length = os.path.getsize(fullpath)
+                            f.write(b"\x00" * length)
+                            f.flush()
+                        os.remove(fullpath)
+                        print("Wallet file securely deleted.")
+                    except Exception as e:
+                        print(f"Error deleting wallet file: {e}")
+                else:
+                    print("Deletion cancelled.")
+            else:
+                print("Invalid selection.")
+            pause()
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
 
 def currency_conversion_settings_menu():
-    # extensible: implement currency selection and input mode toggle
-    print("Currency conversion settings (stub)")
-    pause()
+    settings = load_settings()
+    while True:
+        clear_screen()
+        print("\nCurrency Conversion Settings:")
+        print("1. Toggle XRP-USD display (currently: {})".format("ON" if settings.get("xrp_usd_conversion", False) else "OFF"))
+        print("2. Change currency (stub, extensible)")
+        print("3. Toggle input mode (currently: {})".format(settings.get("xrp_input_mode", "XRP")))
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "1":
+            settings["xrp_usd_conversion"] = not settings.get("xrp_usd_conversion", False)
+            print(f"XRP→USD conversion display set to: {'ON' if settings['xrp_usd_conversion'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "2":
+            print("Currency change not implemented yet. (stub)")
+            # extensible: add more fiat currencies
+            pause()
+        elif choice == "3":
+            mode = settings.get("xrp_input_mode", "XRP")
+            new_mode = "USD" if mode == "XRP" else "XRP"
+            settings["xrp_input_mode"] = new_mode
+            print(f"Input mode set to: {new_mode}")
+            save_settings(settings)
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
 
 def developer_settings_menu():
-    # extensible: implement dev info, debug, donate, contact
-    print("Developer settings (stub)")
-    pause()
+    while True:
+        clear_screen()
+        print("\nDeveloper Settings:")
+        print(f"1. Show developer info and version")
+        print(f"2. Toggle debug output")
+        print(f"3. Donate easter egg")
+        print(f"4. Show contact info")
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "1":
+            show_dev_info()
+        elif choice == "2":
+            settings = load_settings()
+            settings["debug"] = not settings.get("debug", False)
+            print(f"Debug output set to: {'ON' if settings['debug'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "3":
+            print("Type 'donate' in the main menu for developer address!")
+            pause()
+        elif choice == "4":
+            print("Developer contact info:")
+            print("GitHub: https://github.com/rubyatmidnight/xrpurr")
+            print("Email: rubyaftermidnight@gmail.com")
+            pause()
+        elif choice == "b":
+            clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
 
 def manage_frequent_addresses(settings):
     while True:
