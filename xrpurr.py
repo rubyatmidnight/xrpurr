@@ -22,7 +22,7 @@ import urllib.request
 import traceback  
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = '1.1'
+VERSION = '1.2'
 
 # extra XRPL Mainnet endpoints for redundancy!
 XRPL_ENDPOINTS = [
@@ -746,7 +746,6 @@ def sendAccountDelete(wallet, destination):
                 "hash": resp.result.get('hash'),
                 "result": resp.result['meta'].get('TransactionResult')
             })
-            print("You may now delete your wallet file from disk if you wish.")
             pause()
             clear_screen()
             return True
@@ -1020,7 +1019,7 @@ def delete_wallet_account_menu(wallet):
                 continue
             result = sendAccountDelete(wallet, dest)
             if result:
-                print("Account deletion process complete. You may now delete your wallet file from disk if you wish, or retain it for later re-activation.")
+                print("Account deletion process complete. You may keep the wallet file for later re-activation.")
                 pause()
         elif choice == "2":
             # Secure wallet deletion

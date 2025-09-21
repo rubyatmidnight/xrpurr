@@ -2,15 +2,24 @@
 
 ## Updates
 
-8/7/2025: 
+
+9/20/2025: Version 1.2
+I'm sad I wasn't able to work on this much, but I have not had ANY issues since the last time and I have used it regularly. Therefore, I am continuing this project towards hopefully an executible release, as well as a timelock vault.
+Everything has been cleaned up and optimized
+Erroneous error messages and unhelpful ones have been rewritten
+The settings menu was reorganized and cleaned up
+No more annyoing y/n prompts: just do what you intend to
+Soon: timevault. I think this is really important! 
+
+8/7/2025: Hotfix 1.1a
 Added validation for instances where the node fails, it falls back, but the node actually didn't fail; and it ends up double sending. This seemed to happen in fringe cases where the primary node. I already pushed an update which should solve this, but be wary.
 
-7/16/2025:
+7/16/2025: Version 1.1
 Fixed json txlog issue (it will no longer error or malform i hope!)
 Now show spendable balance on send xrp screen (doesnt include reserve amount in total)
 
 
-7/11/2025:
+7/11/2025: Version 1.0
 I had issues with the main xrpl node today, and couldn't sign any transactions. So I had to add some redundancy when it fails to send a transaction, it will attempt to connect to a different node and send it. 
 
 Instructions:
@@ -38,9 +47,10 @@ then, when you type 'xrp' by itself into Powershell, you will instantly run it.
 - Load and manage existing valid XRP wallet seeds
 - Send XRP to any address, with destination tag support and safety checks, plus a check on some addresses which require them but don't enforce it on the network. These warnings may optionally be turned off
 - Manage frequent addresses for quick access. Able to save multiple different tags per address for quick selection, like oldschool speed-dial
-- View your wallet balance and transaction log easily
-- Delete wallet files or even accountdelete your XRP account (with reserve return) easily, no extra-utility or software required. Decrypt wallet files if you have the password
-- Vanity address generator (hidden option or included as a separate file with multithreading ability)
+- View your wallet balance and transaction log easily through the ui, save and archive the transaction log, angostic to address for easy financial tracking
+- Conversion to usd, more currencies later
+- Delete wallet files securely or even accountdelete your XRP account (with reserve return) easily, no extra-utility or software required
+- Vanity address generator (hidden option or included as a separate file with multithreading.)
 - Settings menu for advanced options and debugging display
 
 
