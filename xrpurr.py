@@ -295,7 +295,7 @@ def createWallet():
     print(f"Address: {wallet.address}")
     print(f"Seed: {wallet.seed}")
     print("\n")
-    print(f"\nAll XRP non-custodial wallets require a {BASE_MIN_RESERVE_XRP} XRP 'owner reserve'.\n You need to send 1 XRP to this wallet before you can do anything else with it. That 1 XRP is locked until you close the wallet account, so be aware!\n")
+    print(f"\nAll XRP non-custodial wallets require a {BASE_MIN_RESERVE_XRP} XRP 'owner reserve'.\n You need to send (as of September 2025) 1 XRP to this wallet before you can do anything else with it. That 1 XRP is locked until you close the wallet account, so be aware!\n")
     print(f"See XRPL documentation here: https://xrpl.org/docs/concepts/accounts/reserves")
     print(f"If this is your first non-custodial XRP wallet, remember that you can use destination tag '0' if you have never used an address without a dtag requirement before.\n")
     save = input("Save this wallet encrypted to disk? (y/N): ").strip().lower()
@@ -378,11 +378,17 @@ def deleteWalletFile():
         clear_screen()
         return
     if choice == "a":
-        confirm = input("Are you sure you want to DELETE ALL wallet files? This cannot be undone! (type 'deleteall' to confirm): ").strip()
+        confirm = input("Are you sure you want to DELETE ALL wallet files? This cannot be undone if it isn't backed up! (type 'deleteall' to confirm): ").strip()
         if confirm == "deleteall":
-            for fname in wallet_files:
-                os.remove(os.path.join(wallets_dir, fname))
-            print("All wallet files deleted.")
+            confirmforreal = input("Are you REALLY sure you want to DELETE ALL wallet files? This seriously cannot be undone! (type 'llaeteled' to confirm): ").strip() # don't let them accidentally history up and confirm
+            if confirmforreal == "llaeteled":
+                for fname in wallet_files:
+                    os.remove(os.path.join(wallets_dir, fname))
+                print("All wallet files deleted.")
+            else:
+                print("Deletion cancelled.")
+            clear_screen()
+            return
         else:
             print("Deletion cancelled.")
         clear_screen()
