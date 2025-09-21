@@ -796,122 +796,65 @@ def getUserChoice():
 def settings_menu(wallet=None):
     while True:
         clear_screen()
-        settings = load_settings()
         print("\nSettings Menu:")
         print("1. Manage frequent addresses")
-        print("2. Toggle 'Never require dtag' (currently: {})".format("ON" if settings.get("never_require_dtag") else "OFF"))
-        print("3. Toggle destination tag sanity check (currently: {})".format("ON" if settings.get("sanity_check_dtag") else "OFF"))
-        print("4. Toggle transaction log (currently: {})".format("ON" if settings.get("tx_log_enabled") else "OFF"))
-        print("5. View transaction log")
-        print("6. Reset transaction log (& archive previous)")
-        print("7. Delete wallet file (destructive)")
-        print("8. AccountDelete XRP address (send reserve, must re-activate) [DANGEROUS!]")
-        print("9. Show developer information and build details")
-        print("10. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
-        print("11. Toggle XRP→USD conversion display (currently: {})".format("ON" if settings.get("xrp_usd_conversion", False) else "OFF"))
+        print("2. Destination tag settings")
+        print("3. Transaction log settings")
+        print("4. Delete wallet/account menu")
+        print("5. Currency conversion settings")
+        print("6. Developer settings")
         print("b. Back to main menu")
-        choice = input("Select a settings option: ").strip().lower()
+        choice = input("Select a settings section: ").strip().lower()
         if choice == "1":
-            manage_frequent_addresses(settings)
+            manage_frequent_addresses_menu()
         elif choice == "2":
-            settings["never_require_dtag"] = not settings.get("never_require_dtag", False)
-            print(f"'Never require dtag' set to: {'ON' if settings['never_require_dtag'] else 'OFF'}")
-            save_settings(settings)
+            destination_tag_settings_menu()
         elif choice == "3":
-            settings["sanity_check_dtag"] = not settings.get("sanity_check_dtag", True)
-            print(f"Sanity check for destination tag set to: {'ON' if settings['sanity_check_dtag'] else 'OFF'}")
-            save_settings(settings)
+            transaction_log_settings_menu()
         elif choice == "4":
-            settings["tx_log_enabled"] = not settings.get("tx_log_enabled", True)
-            print(f"Transaction log set to: {'ON' if settings['tx_log_enabled'] else 'OFF'}")
-            save_settings(settings)
+            delete_wallet_account_menu(wallet)
         elif choice == "5":
-            print_tx_log()
+            currency_conversion_settings_menu()
         elif choice == "6":
-            archive_log()
-            print("Transaction log reset.")
-            with open(TX_LOG_FILE, "w") as f:
-                json.dump([], f)
-            pause()
-        elif choice == "7":
-            print("Danger! This will delete your wallet file from disk.")
-            deleteWalletFile()
-        elif choice == "8":
-            print("\nDANGER: This will delete your XRP account from the ledger and send the reserve to another address. It will have to be reactivated to use it again.")
-            print("You must have your wallet loaded and unlocked to proceed.")
-            if wallet is None:
-                print("No wallet loaded/unlocked. Please load your wallet in the main menu and return here if you wish to delete the account.")
-                time.sleep(3.5)
-                continue
-            dest = input("Enter destination address to receive the XRP reserve (or 'q' to cancel): ").strip()
-            if dest.lower() in ['q', 'quit']:
-                continue
-            # Confirm destination address format
-            if not dest or not dest.startswith("r") or len(dest) < 25:
-                print("Invalid destination address.")
-                time.sleep(3.5)
-                continue
-            # Confirm again
-            print(f"\nYou are about to delete your XRP account and send the reserve to: {dest}")
-            print("This action removes the reserve amount from your account and sends it to the destination address.")
-            print("This action is not permanent, but the address must be re-activated by sending another reserve minimum of XRP to the address before the account can be used again.")
-            print("For more info, see: https://xrpl.org/accountdelete.html")
-            print(f"Reserve calculation: Base Reserve = {BASE_RESERVE_XRP} XRP, Owner Reserve = {OWNER_RESERVE_XRP} XRP per object.")
-            print("If you have only two trust lines and no other objects, the reserve may be lower due to XRPL rules. If deletion fails, remove objects and try again.")
-            # Show the amount to be sent (full balance minus 0.2 XRP)
-            try:
-                def _get_account_info(client_obj, wallet):
-                    acctInfo = AccountInfo(
-                        account=wallet.address,
-                        ledger_index="validated"
-                    )
-                    return client_obj.request(acctInfo)
-                response = try_all_clients(_get_account_info, wallet)
-                if response and response.is_successful():
-                    account_data = response.result["account_data"]
-                    balance_drops = int(account_data["Balance"])
-                    network_fee_xrp = 0.2
-                    network_fee_drops = int(xrp_to_drops(network_fee_xrp))
-                    amount_to_send_drops = balance_drops - network_fee_drops
-                    print(f"Amount to be sent: {drops_to_xrp(str(amount_to_send_drops))} XRP (full balance minus 0.2 XRP network fee)")
-                else:
-                    print("Could not fetch account balance for preview.")
-                    time.sleep(3.5)
-            except Exception as e:
-                settings = load_settings()
-                debug = settings.get("debug", False)
-                print(f"Could not fetch account balance for preview: {e}")
-                if debug:
-                    print("DEBUG: Exception traceback:")
-                    traceback.print_exc()
-                time.sleep(3.5)
-            confirm = input("Type 'IAMDELETINGMYWALLET' (exactly) to confirm: ").strip()
-            if confirm != "IAMDELETINGMYWALLET":
-                print("Account deletion cancelled.")
-                time.sleep(3.5)
-                continue
-            # Final confirmation
-            result = sendAccountDelete(wallet, dest)
-            if result:
-                print("Account deletion process complete. You may now delete your wallet file from disk if you wish, or retain it for later re-activation.")
-                pause()
-        elif choice == "9":
-            show_dev_info()
-        elif choice == "10":
-            settings["debug"] = not settings.get("debug", False)
-            print(f"Debug output set to: {'ON' if settings['debug'] else 'OFF'}")
-            save_settings(settings)
-        elif choice == "11":
-            settings["xrp_usd_conversion"] = not settings.get("xrp_usd_conversion", False)
-            print(f"XRP→USD conversion display set to: {'ON' if settings['xrp_usd_conversion'] else 'OFF'}")
-            save_settings(settings)
+            developer_settings_menu()
         elif choice == "b":
             clear_screen()
             break
         else:
             print("Invalid option.")
-            time.sleep(2)  # or use pause()
+            time.sleep(2)
             clear_screen()
+
+# --- Submenu stubs ---
+def manage_frequent_addresses_menu():
+    # extensible: implement address management
+    print("Frequent address management (stub)")
+    pause()
+
+def destination_tag_settings_menu():
+    # extensible: implement dtag toggles
+    print("Destination tag settings (stub)")
+    pause()
+
+def transaction_log_settings_menu():
+    # extensible: implement log view/reset/clear/toggle
+    print("Transaction log settings (stub)")
+    pause()
+
+def delete_wallet_account_menu(wallet):
+    # extensible: implement accountdelete and secure wallet deletion
+    print("Delete wallet/account menu (stub)")
+    pause()
+
+def currency_conversion_settings_menu():
+    # extensible: implement currency selection and input mode toggle
+    print("Currency conversion settings (stub)")
+    pause()
+
+def developer_settings_menu():
+    # extensible: implement dev info, debug, donate, contact
+    print("Developer settings (stub)")
+    pause()
 
 def manage_frequent_addresses(settings):
     while True:
