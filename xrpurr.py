@@ -104,7 +104,8 @@ DEFAULT_SETTINGS = {
     "never_require_dtag": False,
     "sanity_check_dtag": True,
     "tx_log_enabled": True,
-    "debug": False
+    "debug": False,
+    "xrp_usd_conversion": False  # show USD conversion
 }
 
 # if this ever changes it needs to be updated
@@ -481,6 +482,22 @@ def loadWallet():
         clear_screen()
         return None
 
+def getXrpUsdRate():
+    url = "https://api.coingecko.com/api/v3/simple/price?ids=ripple&vs_currencies=usd"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.load(response)
+            return float(data["ripple"]["usd"])
+    except Exception:
+        return None
+
+def xrpToUsd(xrpAmt):
+    rate = getXrpUsdRate()
+    if rate is not None:
+        usd = xrpAmt * rate
+        return usd, rate
+    return None, None
+
 def getBalance(address):
     def _get_balance(client_obj, address):
         acctInfo = AccountInfo(
@@ -490,13 +507,21 @@ def getBalance(address):
         return client_obj.request(acctInfo)
     try:
         response = try_all_clients(_get_balance, address)
+        settings = load_settings()
+        showUsd = settings.get("xrp_usd_conversion", False)
         if response and response.is_successful():
             balance = int(response.result["account_data"]["Balance"])
-            balanceXrp = drops_to_xrp(str(balance))
-            print(f"Balance for {address}: {balanceXrp} XRP")
+            balanceXrp = float(drops_to_xrp(str(balance)))
+            if showUsd:
+                usd, rate = xrpToUsd(balanceXrp)
+                if usd is not None:
+                    print(f"Balance for {address}: {balanceXrp} XRP (${usd:.2f}) [${rate:.4f}/XRP]")
+                else:
+                    print(f"Balance for {address}: {balanceXrp} XRP (USD unavailable)")
+            else:
+                print(f"Balance for {address}: {balanceXrp} XRP")
             return balance
         else:
-            # Check for unactivated address error
             err = getattr(response, 'result', response)
             if isinstance(err, dict) and err.get('error') == 'actNotFound':
                 print(f"{address} is not activated.")
@@ -783,6 +808,7 @@ def settings_menu(wallet=None):
         print("8. AccountDelete XRP address (send reserve, must re-activate) [DANGEROUS!]")
         print("9. Show developer information and build details")
         print("10. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
+        print("11. Toggle XRP→USD conversion display (currently: {})".format("ON" if settings.get("xrp_usd_conversion", False) else "OFF"))
         print("b. Back to main menu")
         choice = input("Select a settings option: ").strip().lower()
         if choice == "1":
@@ -811,7 +837,7 @@ def settings_menu(wallet=None):
             print("Danger! This will delete your wallet file from disk.")
             deleteWalletFile()
         elif choice == "8":
-            print("\nDANGER: This will permanently delete your XRP account from the ledger and send the reserve to another address.")
+            print("\nDANGER: This will delete your XRP account from the ledger and send the reserve to another address. It will have to be reactivated to use it again.")
             print("You must have your wallet loaded and unlocked to proceed.")
             if wallet is None:
                 print("No wallet loaded/unlocked. Please load your wallet in the main menu and return here if you wish to delete the account.")
@@ -874,6 +900,10 @@ def settings_menu(wallet=None):
         elif choice == "10":
             settings["debug"] = not settings.get("debug", False)
             print(f"Debug output set to: {'ON' if settings['debug'] else 'OFF'}")
+            save_settings(settings)
+        elif choice == "11":
+            settings["xrp_usd_conversion"] = not settings.get("xrp_usd_conversion", False)
+            print(f"XRP→USD conversion display set to: {'ON' if settings['xrp_usd_conversion'] else 'OFF'}")
             save_settings(settings)
         elif choice == "b":
             clear_screen()
