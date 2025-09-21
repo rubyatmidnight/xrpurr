@@ -490,7 +490,15 @@ def getBalance(address):
             print(f"Balance for {address}: {balanceXrp} XRP")
             return balance
         else:
-            print(f"Error getting balance: {getattr(response, 'result', response)}")
+            # Check for unactivated address error
+            err = getattr(response, 'result', response)
+            if isinstance(err, dict) and err.get('error') == 'actNotFound':
+                print(f"{address} is not activated.")
+                print(f"{address} is a valid XRP address and can be activated by sending the minimum reserve balance of XRP to it.")
+                print(f"Reserve calculation: Base Reserve = {BASE_RESERVE_XRP} XRP, Owner Reserve = {OWNER_RESERVE_XRP} XRP per object.")
+                print(f"Once activated, you can use this wallet for transactions and management.")
+            else:
+                print(f"Error getting balance: {err}")
             time.sleep(3.5)
             return 0
     except Exception as e:
@@ -572,7 +580,11 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
         if response and response.is_successful():
             print("Transaction successful!")
             print(f"Hash: {response.result['hash']}")
-            print(f"Result: {response.result['meta']['TransactionResult']}")
+            result = response.result['meta']['TransactionResult']
+            if result == 'tesSUCCESS':
+                print("Result: Success (tesSUCCESS)")
+            else:
+                print(f"Result: {result}")
             if destinationTag:
                 print(f"Destination tag: {destinationTag}")
             log_transaction({
@@ -580,7 +592,7 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
                 "amount_xrp": amountXrp,
                 "destination_tag": destinationTag,
                 "hash": response.result.get('hash'),
-                "result": response.result['meta'].get('TransactionResult')
+                "result": result
             })
             pause()
         else:
