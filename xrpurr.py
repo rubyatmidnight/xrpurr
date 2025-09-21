@@ -1,5 +1,6 @@
 import asyncio
 
+from decimal import MIN_EMIN
 from io import StringIO
 import random
 import csv
@@ -21,7 +22,7 @@ import urllib.request
 import traceback  
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = '1.0'
+VERSION = '1.1'
 
 # extra XRPL Mainnet endpoints for redundancy!
 XRPL_ENDPOINTS = [
@@ -113,7 +114,7 @@ OWNER_RESERVE_XRP = 0.2
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-def pause(msg="Press Enter to continue..."):
+def pause(msg="Press any key to continue..."):
     input(msg)
 
 def load_settings():
@@ -166,9 +167,28 @@ def log_transaction(tx_data):
     settings = load_settings()
     if not settings.get("tx_log_enabled", True):
         return
+    def serialize(obj):
+        # Decimal to str/float
+        try:
+            import decimal
+            if isinstance(obj, decimal.Decimal):
+                return str(obj)
+        except ImportError:
+            pass
+        if isinstance(obj, (datetime)):
+            return obj.isoformat()
+        return obj
+    # Recursively convert all values
+    def clean_dict(d):
+        if isinstance(d, dict):
+            return {k: clean_dict(v) for k, v in d.items()}
+        elif isinstance(d, list):
+            return [clean_dict(v) for v in d]
+        else:
+            return serialize(d)
     log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        **tx_data
+        "timestamp": datetime.now(datetime.UTC).isoformat(),  # utc timestamp
+        **clean_dict(tx_data)
     }
     try:
         if os.path.exists(TX_LOG_FILE):
@@ -176,16 +196,28 @@ def log_transaction(tx_data):
                 with open(TX_LOG_FILE, "r") as f:
                     log = json.load(f)
             except Exception:
-                print("Warning: Transaction log corrupted, resetting log file.")
+                print("Warning: Transaction log corrupted. Resetting log.")
                 log = []
         else:
             log = []
         log.append(log_entry)
-        with open(TX_LOG_FILE, "w") as f:
+        with open(TX_LOG_FILE, "w") as f:  # file write
             json.dump(log, f, indent=2)
     except Exception as e:
         print(f"Warning: Could not log transaction: {e}")
         pause()
+
+# Archive log helper
+import shutil
+
+def archive_log():
+    arch_dir = os.path.join(BASEDIR, "src", "archive")
+    os.makedirs(arch_dir, exist_ok=True)
+    if os.path.exists(TX_LOG_FILE):
+        ts = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")  # utc timestamp
+        arch_file = os.path.join(arch_dir, f"xrpurr_txlog_{ts}.json")
+        shutil.move(TX_LOG_FILE, arch_file)
+        print(f"Log archived to {arch_file}")
 
 def print_tx_log():
     clear_screen()
@@ -237,7 +269,7 @@ def getGreeting():
         "Sawubona", "Ahoj", "Moi", "Cześć", "Merhaba", "ښه شپه ولری"
     ]
     genericVariants = [
-    "X R P", "XRP!", "$200 xrp moon", "im not coping"
+    "X R P", "XRP!", "$200 xrp moon", "im not coping", "The midnight hour!"
     ]
     # get the time to send the right message
     now = datetime.now().hour
@@ -245,19 +277,25 @@ def getGreeting():
         return random.choice(morningVariants)
     elif 12 <= now < 18:
         return random.choice(afternoonVariants)
-    elif 18 <= now < 22:
+    elif 18 <= now < 23:
         return random.choice(eveningVariants)
+    elif 0 <= now < 5:
+        return 'The midnight hour!'
     else:
         return random.choice(nightVariants)
 
 def createWallet():
     clear_screen()
+    # for later easy adjustment
+    BASE_MIN_RESERVE_XRP = BASE_RESERVE_XRP + OWNER_RESERVE_XRP
+    OWNER_MIN_RESERVE_XRP = OWNER_RESERVE_XRP
     wallet = Wallet.create()
+    owner_count = 0
     print("\n")
     print(f"Address: {wallet.address}")
     print(f"Seed: {wallet.seed}")
     print("\n")
-    print(f"Caution!:\nAll XRP non-custodial wallets require a 1 XRP 'owner reserve'. You need to send 1 XRP to this wallet before you can do anything else with it. That 1 XRP is locked until you close the wallet account, so be aware!\n")
+    print(f"\nAll XRP non-custodial wallets require a {BASE_MIN_RESERVE_XRP} XRP 'owner reserve'.\n You need to send 1 XRP to this wallet before you can do anything else with it. That 1 XRP is locked until you close the wallet account, so be aware!\n")
     print(f"See XRPL documentation here: https://xrpl.org/docs/concepts/accounts/reserves")
     print(f"If this is your first non-custodial XRP wallet, remember that you can use destination tag '0' if you have never used an address without a dtag requirement before.\n")
     save = input("Save this wallet encrypted to disk? (y/N): ").strip().lower()
@@ -266,12 +304,12 @@ def createWallet():
     clear_screen()
     return wallet
 
-def findVanityAddr(prefix, maxAttempts=1_000_000):
+def findVanityAddr(prefix, maxAttempts=10_000_000):
     clear_screen()
     prefix = prefix.strip()
     if not prefix.startswith("r"):
         prefix = "r" + prefix
-    
+    print(f"Preferably, use the companion tool which is multithreaded and faster, available in the tools folder or in the repo.")
     print(f"Searching for address starting with: {prefix}")
     attempts = 0
     startTime = time.time()
@@ -313,11 +351,11 @@ def saveWalletSeed(seed):
         print("Passwords do not match. Wallet not saved.")
         clear_screen()
         return
-    key = getFernetKeyFromPassword(password)
+    key = getFernetKeyFromPassword(password)  # password check
     f = Fernet(key)
-    enc = f.encrypt(seed.encode())
+    enc = f.encrypt(seed.encode())  # encrypt seed
     wallet_file = get_next_wallet_file()
-    with open(wallet_file, "wb") as fp:
+    with open(wallet_file, "wb") as fp:  # file write
         fp.write(enc)
     print(f"Wallet seed encrypted and saved to {wallet_file}.")
     clear_screen()
@@ -394,32 +432,31 @@ def loadWallet():
         return None
 
     if filename and Fernet is not None and os.path.exists(filename):
-        use_file = input(f"Found encrypted wallet file '{os.path.basename(filename)}'. Load it? (y/n): ").strip().lower()
-        if use_file in ["", "y", "yes"]:
-            for attempt in range(3):
-                password = getpass.getpass("Enter password to decrypt wallet: ")
-                key = getFernetKeyFromPassword(password)
-                f = Fernet(key)
-                try:
-                    with open(filename, "rb") as fp:
-                        enc = fp.read()
-                    seed = f.decrypt(enc).decode()
-                    wallet = Wallet.from_seed(seed)
-                    print(f"Loaded wallet address: {wallet.address}")
-                    pause()
-                    clear_screen()
-                    return wallet
-                except InvalidToken:
-                    print("Incorrect password.")
-                    pause()
-                except Exception as e:
-                    print(f"Error loading wallet: {e}")
-                    pause()
-                    break
-            print("Failed to load wallet from file.")
-            pause()
-            clear_screen()
-            return None
+        # Removed y/n prompt, just load
+        for attempt in range(3):
+            password = getpass.getpass("Enter password to decrypt wallet: ")
+            key = getFernetKeyFromPassword(password)
+            f = Fernet(key)
+            try:
+                with open(filename, "rb") as fp:
+                    enc = fp.read()
+                seed = f.decrypt(enc).decode()  # decrypt seed
+                wallet = Wallet.from_seed(seed)
+                print(f"Loaded wallet address: {wallet.address}")
+                pause()
+                clear_screen()
+                return wallet
+            except InvalidToken:
+                print("Incorrect password.")
+                pause()
+            except Exception as e:
+                print(f"Error loading wallet: {e}")
+                pause()
+                break
+        print("Failed to load wallet from file.")
+        pause()
+        clear_screen()
+        return None
     # Fallback: manual seed entry
     seed = input("Enter your wallet seed: ").strip()
     try:
@@ -583,8 +620,8 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
 
 def sendAccountDelete(wallet, destination):
     """
-    Sends an AccountDelete transaction to delete the loaded wallet's account and transfer the remaining XRP reserve to the destination.
-    The amount sent will be the full balance minus the network fee (0.2 XRP).
+    Sends an AccountDelete transaction to deactivate the loaded wallet's account on the XRP Ledger and transfer the remaining XRP reserve to another activated wallet.
+    The amount sent will be the full balance minus the network fee for AccountDelete transactions (0.2 XRP). 
     """
     def _get_account_info(client_obj, wallet):
         acctInfo = AccountInfo(
@@ -616,7 +653,7 @@ def sendAccountDelete(wallet, destination):
         balance_drops = int(account_data["Balance"])
         owner_count = int(account_data.get("OwnerCount", 0))
 
-        # Calculate reserve using current rules (Mainnet as of 2024-06)
+        # Calculate reserve using current rules (Mainnet as of 2025-06)
         min_reserve_xrp = BASE_RESERVE_XRP + OWNER_RESERVE_XRP * max(0, owner_count)
         min_reserve_drops = int(xrp_to_drops(min_reserve_xrp))
         print(f"Account balance: {drops_to_xrp(str(balance_drops))} XRP")
@@ -640,8 +677,8 @@ def sendAccountDelete(wallet, destination):
             return False
 
         # Confirm with user
-        print("\nWARNING: This will permanently delete your XRP account and send the reserve to the destination address.")
-        print("This action is IRREVERSIBLE. You will lose access to this account and its address forever.")
+        print("\nWARNING: This will deactivate your XRP account and send the remaining reserve to the destination address.")
+        print(f"This action is not permanent, but the address can no longer be accessed without being activated again with another base reserve of {min_reserve_xrp}.")
         print("For more info, see: https://xrpl.org/accountdelete.html")
         print(f"Destination for reserve: {destination}")
         print(f"Amount to be sent: {drops_to_xrp(str(amount_to_send_drops))} XRP (full balance minus 0.2 XRP network fee)")
@@ -723,10 +760,11 @@ def settings_menu(wallet=None):
         print("3. Toggle destination tag sanity check (currently: {})".format("ON" if settings.get("sanity_check_dtag") else "OFF"))
         print("4. Toggle transaction log (currently: {})".format("ON" if settings.get("tx_log_enabled") else "OFF"))
         print("5. View transaction log")
-        print("6. Delete wallet file (dangerous!)")
-        print("7. Delete XRP account (permanently, send reserve) [DANGEROUS!]")
-        print("8. Show developer information and build details")
-        print("9. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
+        print("6. Reset transaction log (archive old)")
+        print("7. Delete wallet file (dangerous!)")
+        print("8. Delete XRP account (permanently, send reserve) [DANGEROUS!]")
+        print("9. Show developer information and build details")
+        print("10. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
         print("b. Back to main menu")
         choice = input("Select a settings option: ").strip().lower()
         if choice == "1":
@@ -746,9 +784,15 @@ def settings_menu(wallet=None):
         elif choice == "5":
             print_tx_log()
         elif choice == "6":
+            archive_log()
+            print("Transaction log reset.")
+            with open(TX_LOG_FILE, "w") as f:
+                json.dump([], f)
+            pause()
+        elif choice == "7":
             print("Danger! This will delete your wallet file from disk.")
             deleteWalletFile()
-        elif choice == "7":
+        elif choice == "8":
             print("\nDANGER: This will permanently delete your XRP account from the ledger and send the reserve to another address.")
             print("You must have your wallet loaded and unlocked to proceed.")
             if wallet is None:
@@ -807,9 +851,9 @@ def settings_menu(wallet=None):
             if result:
                 print("Account deletion process complete. You may now delete your wallet file from disk if you wish, or retain it for later re-activation.")
                 pause()
-        elif choice == "8":
-            show_dev_info()
         elif choice == "9":
+            show_dev_info()
+        elif choice == "10":
             settings["debug"] = not settings.get("debug", False)
             print(f"Debug output set to: {'ON' if settings['debug'] else 'OFF'}")
             save_settings(settings)

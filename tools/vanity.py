@@ -1,4 +1,7 @@
-import multiprocessing, time, os
+import concurrent.futures
+import threading
+import time
+import os
 from xrpl.wallet import Wallet
 from cryptography.fernet import Fernet
 import getpass
@@ -9,19 +12,26 @@ def showAllowedChars():
     chars = "r" + ''.join([c for c in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"])
     print(f"Allowed characters for XRP addresses:\n{chars}\n\nSummary: {allowed}")
 
-def generate(prefix, queue, stop, pid, caseSensitive):
-    attempts = 0
+def generateWorker(prefix, caseSensitive, stopEvent, resultDict, workerId):
     create = Wallet.create
     plen = len(prefix)
     prefixC = prefix if caseSensitive else prefix.lower()
-    while not stop.is_set():
+    attempts = 0
+    while not stopEvent.is_set():
         w = create()
         addrPart = w.address[:plen] if caseSensitive else w.address[:plen].lower()
         if addrPart == prefixC:
-            queue.put((w.address, w.seed, attempts, pid))
-            stop.set()
+            # Only first thread to succeed sets result
+            if not stopEvent.is_set():
+                resultDict['address'] = w.address
+                resultDict['seed'] = w.seed
+                resultDict['attempts'] = attempts
+                resultDict['workerId'] = workerId
+                stopEvent.set()
             break
         attempts += 1
+        if attempts % 10000 == 0:
+            print(f"Attempts: {attempts}... still searching.")
 
 def getEncryptionKey():
     import base64
@@ -45,24 +55,31 @@ def main():
         print("Prefix must start with 'r' and be at least 2 chars."); return
     caseSel = input("Case sensitive match? (y/N): ").strip().lower()
     caseSensitive = caseSel == "y"
-    cpuTotal = multiprocessing.cpu_count()
+    cpuTotal = os.cpu_count() or 4
     cpu = max(1, int(cpuTotal * 0.75))
-    mgr = multiprocessing.Manager()
-    queue, stop = mgr.Queue(), mgr.Event()
+    stopEvent = threading.Event()
+    resultDict = {}
     csText = "case-sensitive" if caseSensitive else "case-insensitive"
-    print(f"Searching for address beginning with: '{prefix}...' ({csText}); Using {cpu} of {cpuTotal} cores...")
+    print(f"Searching for address beginning with: '{prefix}...' ({csText}); Using {cpu} of {cpuTotal} threads...")
     t0 = time.time()
-    procs = [multiprocessing.Process(target=generate, args=(prefix, queue, stop, i+1, caseSensitive)) for i in range(cpu)]
-    for p in procs: p.start()
-    addr, seed, attempts, pid = queue.get()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=cpu) as executor:
+        futures = []
+        for i in range(cpu):
+            futures.append(executor.submit(generateWorker, prefix, caseSensitive, stopEvent, resultDict, i+1))
+        # Wait for any thread to finish
+        while not stopEvent.is_set():
+            time.sleep(0.05)
+        # Cancel all threads
+        for f in futures:
+            f.cancel()
     elapsed = time.time() - t0
-    print(f"\nFound {addr}\nBy process {pid} after {attempts} attempts")
+    addr = resultDict.get('address')
+    seed = resultDict.get('seed')
+    attempts = resultDict.get('attempts', 0)
+    workerId = resultDict.get('workerId', '?')
+    print(f"\nFound {addr}\nBy thread {workerId} after {attempts} attempts")
     print(f"Time: {elapsed:.2f}s | Rate: {int(attempts*cpu/elapsed)} attempts/sec")
     saveEncryptedSeed(seed)
-    stop.set()
-    for p in procs:
-        p.terminate()
-        p.join(timeout=2)
 
 if __name__ == "__main__":
     main()
