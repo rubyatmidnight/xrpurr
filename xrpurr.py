@@ -10,7 +10,7 @@ import base64
 import getpass
 import json
 import time 
-from datetime import datetime
+from datetime import datetime, timezone
 from xrpl.wallet import Wallet
 from xrpl.clients import JsonRpcClient
 from xrpl.models.transactions import Payment, AccountDelete
@@ -187,7 +187,7 @@ def log_transaction(tx_data):
         else:
             return serialize(d)
     log_entry = {
-        "timestamp": datetime.now(datetime.UTC).isoformat(),  # utc timestamp
+        "timestamp": datetime.now(timezone.utc).isoformat(),  # utc timestamp
         **clean_dict(tx_data)
     }
     try:
@@ -214,7 +214,7 @@ def archive_log():
     arch_dir = os.path.join(BASEDIR, "src", "archive")
     os.makedirs(arch_dir, exist_ok=True)
     if os.path.exists(TX_LOG_FILE):
-        ts = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")  # utc timestamp
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")  # utc timestamp
         arch_file = os.path.join(arch_dir, f"xrpurr_txlog_{ts}.json")
         shutil.move(TX_LOG_FILE, arch_file)
         print(f"Log archived to {arch_file}")
@@ -287,8 +287,8 @@ def getGreeting():
 def createWallet():
     clear_screen()
     # for later easy adjustment
-    BASE_MIN_RESERVE_XRP = BASE_RESERVE_XRP + OWNER_RESERVE_XRP
-    OWNER_MIN_RESERVE_XRP = OWNER_RESERVE_XRP
+    BASE_MIN_RESERVE_XRP = BASE_RESERVE_XRP
+    OWNER_MIN_RESERVE_XRP = 1.0 # as of September 2025
     wallet = Wallet.create()
     owner_count = 0
     print("\n")
@@ -778,9 +778,9 @@ def settings_menu(wallet=None):
         print("3. Toggle destination tag sanity check (currently: {})".format("ON" if settings.get("sanity_check_dtag") else "OFF"))
         print("4. Toggle transaction log (currently: {})".format("ON" if settings.get("tx_log_enabled") else "OFF"))
         print("5. View transaction log")
-        print("6. Reset transaction log (archive old)")
-        print("7. Delete wallet file (dangerous!)")
-        print("8. Delete XRP account (permanently, send reserve) [DANGEROUS!]")
+        print("6. Reset transaction log (& archive previous)")
+        print("7. Delete wallet file (destructive)")
+        print("8. AccountDelete XRP address (send reserve, must re-activate) [DANGEROUS!]")
         print("9. Show developer information and build details")
         print("10. Toggle debug output (currently: {})".format("ON" if settings.get("debug", False) else "OFF"))
         print("b. Back to main menu")
