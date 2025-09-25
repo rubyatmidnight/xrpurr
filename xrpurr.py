@@ -32,6 +32,9 @@ XRPL_ENDPOINTS = [
 ]
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(XRPL_ENDPOINTS[0])
+testmode = True
+if testmode == True:
+    XRPL_ENDPOINTS = [testnetUrl]
 
 def get_redundant_clients():
     """Return a list of JsonRpcClient objects for all endpoints."""
@@ -85,6 +88,34 @@ def isTxnValidated(client, txHash, account, seq=None):
         return False
     except Exception:
         return False
+
+def base58_decode(s):
+    base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    num = 0
+    for char in s:
+        if char not in base58_chars:
+            return None
+        num = num * 58 + base58_chars.index(char)
+    # Convert to bytes
+    b = num.to_bytes(25, byteorder='big')
+    # Leading zeros
+    n_pad = len(s) - len(s.lstrip('1'))
+    return b'\x00' * n_pad + b
+
+def is_valid_xrp_address(address):
+    base58_chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+    if not address or not isinstance(address, str):
+        return False
+    if not address.startswith("r"):
+        return False
+    if not (25 <= len(address) <= 35):
+        return False
+    if not all(c in base58_chars for c in address):
+        return False
+    decoded = base58_decode(address)
+    if not decoded or len(decoded) != 25:
+        return False
+    return True
 
 # Wallets directory and file management is not great 
 wallets_dir = os.path.join(BASEDIR, "wallets")
@@ -982,8 +1013,8 @@ def delete_wallet_account_menu(wallet):
             dest = input("Enter destination address to receive the XRP reserve (or 'q' to cancel): ").strip()
             if dest.lower() in ['q', 'quit']:
                 continue
-            if not dest or not dest.startswith("r") or len(dest) < 25:
-                print("Invalid destination address.")
+            if not is_valid_xrp_address(dest):
+                print("Invalid destination address. Please enter a valid XRP address, or double check your input.")
                 time.sleep(3.5)
                 continue
             print(f"\nYou are about to delete your XRP account and send the reserve to: {dest}")
@@ -1374,6 +1405,11 @@ def send_xrp_manual(wallet, settings):
             if dest.lower() in ['q', 'quit']:
                 clear_screen()
                 return
+            if not is_valid_xrp_address(dest):
+                print("Invalid XRP address. Please enter a valid XRP address, or double check your input.")
+                time.sleep(2)
+                clear_screen()
+                return
             destTag = None
 
             # Check if destination is in the dtag_accounts_without_flag list
@@ -1507,6 +1543,11 @@ def send_xrp_saved(wallet, settings):
             if choice.isdigit() and 1 <= int(choice) <= len(fa):
                 entry = fa[int(choice)-1]
                 dest = entry["address"]
+                if not is_valid_xrp_address(dest):
+                    print("Invalid XRP address. Please enter a valid XRP address, or double check your input.")
+                    time.sleep(2)
+                    clear_screen()
+                    return
                 tags = entry.get("tags", [])
                 destTag = None
                 if tags:

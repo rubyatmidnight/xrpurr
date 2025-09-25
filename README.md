@@ -113,6 +113,11 @@ then, when you type 'xrp' by itself into Powershell, you will instantly run it.
    python xrpurr.py
    ```
 
+### For rebuilding the binary
+pip install -r requirement.txt
+pyinstaller --onefile xrpurr.py
+sha256sum dist/xrpurr
+
 ## Considerations
 
 - Wallets are automatically encrypted with fernet keys by password from the vanity tool, so you can leave it running without someone seeing a found seed on your screen or something like that
