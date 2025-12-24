@@ -26,8 +26,8 @@ VERSION = '1.2'
 
 # extra XRPL Mainnet endpoints for redundancy!
 XRPL_ENDPOINTS = [
-    "https://xrplcluster.com/",
     "https://s1.ripple.com:51234/",
+    "https://xrplcluster.com/",
     "https://xrpl.ws/"
 ]
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
