@@ -1,6 +1,3 @@
-import asyncio
-
-from decimal import MIN_EMIN
 from io import StringIO
 import random
 import csv
@@ -40,36 +37,175 @@ def get_redundant_clients():
     """Return a list of JsonRpcClient objects for all endpoints."""
     return [JsonRpcClient(url) for url in XRPL_ENDPOINTS]
 
+def get_account_sequence(client, address):
+    """Get the current sequence number for an account. Returns None on error."""
+    try:
+        acct_info = AccountInfo(account=address, ledger_index="validated")
+        response = client.request(acct_info)
+        if response.is_successful():
+            return int(response.result["account_data"]["Sequence"])
+    except Exception:
+        pass
+    return None
+
+def check_recent_tx_exists(client, address, destination, amount_drops, dest_tag=None, since_sequence=None):
+    """
+    Check if a transaction matching our parameters exists in recent account history.
+    This helps detect if a transaction went through even if we didn't get confirmation.
+    Returns the tx hash if found, None otherwise.
+    """
+    try:
+        req = {
+            "method": "account_tx",
+            "params": [{
+                "account": address,
+                "ledger_index_min": -1,
+                "ledger_index_max": -1,
+                "limit": 10,
+                "forward": False
+            }]
+        }
+        resp = client.request(req)
+        if not resp.is_successful():
+            return None
+
+        txs = resp.result.get("transactions", [])
+        for tx_entry in txs:
+            tx = tx_entry.get("tx", {})
+            meta = tx_entry.get("meta", {})
+
+            # Only check Payment transactions from our account
+            if tx.get("TransactionType") != "Payment":
+                continue
+            if tx.get("Account") != address:
+                continue
+
+            # Check sequence number - if we have a baseline, skip older txs
+            if since_sequence is not None and tx.get("Sequence", 0) < since_sequence:
+                continue
+
+            # Check destination and amount match
+            if tx.get("Destination") != destination:
+                continue
+
+            # Amount could be string (drops) or dict (issued currency)
+            tx_amount = tx.get("Amount")
+            if isinstance(tx_amount, str) and tx_amount == str(amount_drops):
+                # Check destination tag if relevant
+                tx_dtag = tx.get("DestinationTag")
+                if dest_tag is None and tx_dtag is None:
+                    if meta.get("TransactionResult") == "tesSUCCESS":
+                        return tx.get("hash")
+                elif dest_tag is not None and tx_dtag == dest_tag:
+                    if meta.get("TransactionResult") == "tesSUCCESS":
+                        return tx.get("hash")
+        return None
+    except Exception:
+        return None
+
 def try_all_clients(func, *args, **kwargs):
-    # try all XRPL endpoints in order, may cause lag. Sometimes it sends before it even says it's done
+    """
+    Try all XRPL endpoints in order with robust double-spend prevention.
+    For payment operations, tracks sequence numbers and checks for existing transactions
+    before retrying to prevent accidental double-spending.
+    """
     last_exception = None
     last_response = None
-    txHash = kwargs.pop("txHash", None)
-    txSeq = kwargs.pop("txSeq", None)
-    txAccount = kwargs.pop("txAccount", None)
+
+    # Extract transaction tracking params (used for payment operations)
+    tx_account = kwargs.pop("tx_account", None)
+    tx_destination = kwargs.pop("tx_destination", None)
+    tx_amount_drops = kwargs.pop("tx_amount_drops", None)
+    tx_dest_tag = kwargs.pop("tx_dest_tag", None)
+    is_payment = kwargs.pop("is_payment", False)
+
+    # Track the starting sequence number to detect if tx went through
+    starting_sequence = None
+
     for idx, url in enumerate(XRPL_ENDPOINTS):
         try:
             c = JsonRpcClient(url)
-            # Before fallback, check if txn is validated
-            if idx > 0 and txHash and txAccount:
-                if isTxnValidated(c, txHash, txAccount, txSeq):
-                    print(f"Transaction already validated on fallback check at {url}!")
-                    return last_response
+
+            # For payment operations, implement double-spend prevention
+            if is_payment and tx_account and idx > 0:
+                print(f"Checking if previous transaction attempt succeeded before retry...")
+                time.sleep(2)  # Give the network time to propagate
+
+                # Check 1: Did the sequence number increase?
+                current_seq = get_account_sequence(c, tx_account)
+                if starting_sequence is not None and current_seq is not None:
+                    if current_seq > starting_sequence:
+                        # Sequence increased - a transaction likely went through
+                        # Verify it was our intended transaction
+                        existing_hash = check_recent_tx_exists(
+                            c, tx_account, tx_destination, tx_amount_drops,
+                            tx_dest_tag, starting_sequence
+                        )
+                        if existing_hash:
+                            print(f"Transaction already confirmed! Hash: {existing_hash}")
+                            print("Skipping retry to prevent double-spend.")
+                            # Return a mock successful response
+                            return type('obj', (object,), {
+                                'is_successful': lambda: True,
+                                'result': {
+                                    'hash': existing_hash,
+                                    'meta': {'TransactionResult': 'tesSUCCESS'},
+                                    '_recovered': True
+                                }
+                            })()
+                        else:
+                            print(f"Warning: Sequence increased but couldn't verify our tx. Checking further...")
+
+                # Check 2: Look for our specific transaction in recent history
+                existing_hash = check_recent_tx_exists(
+                    c, tx_account, tx_destination, tx_amount_drops,
+                    tx_dest_tag, starting_sequence
+                )
+                if existing_hash:
+                    print(f"Found existing transaction with hash: {existing_hash}")
+                    print("Skipping retry to prevent double-spend.")
+                    return type('obj', (object,), {
+                        'is_successful': lambda: True,
+                        'result': {
+                            'hash': existing_hash,
+                            'meta': {'TransactionResult': 'tesSUCCESS'},
+                            '_recovered': True
+                        }
+                    })()
+
+            # Get starting sequence on first attempt for payments
+            if is_payment and tx_account and idx == 0:
+                starting_sequence = get_account_sequence(c, tx_account)
+
             response = func(c, *args, **kwargs)
             last_response = response
+
             if hasattr(response, "is_successful") and response.is_successful():
                 if url != XRPL_ENDPOINTS[0]:
                     print(f"Notice: Fallback XRPL endpoint used: {url}")
                 return response
+
         except Exception as e:
             last_exception = e
             print(f"Warning: XRPL endpoint {url} failed: {e}")
+
+            # Add delay before retry to let network settle
+            if idx < len(XRPL_ENDPOINTS) - 1:
+                delay = min(2 * (idx + 1), 6)  # 2s, 4s, 6s max
+                print(f"Waiting {delay}s before trying next endpoint...")
+                time.sleep(delay)
+
     if last_exception:
         raise last_exception
     return last_response
 
-def isTxnValidated(client, txHash, account, seq=None):
-    # Check if txn is in validated ledger
+def isTxnValidated(client, txHash, account=None, seq=None):
+    """
+    Check if a transaction is validated on the ledger.
+    Returns True if the transaction exists and was successful.
+    """
+    if not txHash:
+        return False
     try:
         req = {
             "method": "tx",
@@ -78,11 +214,11 @@ def isTxnValidated(client, txHash, account, seq=None):
         resp = client.request(req)
         result = resp.result
         if result.get("validated") and result.get("meta", {}).get("TransactionResult") == "tesSUCCESS":
-            # Optionally check sequence
+            # Optionally verify sequence
             if seq is not None and result.get("Sequence") != seq:
                 return False
-            # Confirm account matches
-            if result.get("Account") != account:
+            # Optionally verify account
+            if account is not None and result.get("Account") != account:
                 return False
             return True
         return False
@@ -129,15 +265,55 @@ _DTAG_ACCOUNTS_CACHE = {
     "last_fetch": 0
 }
 
+# Track last transaction time for rate limiting
+_LAST_TX_TIME = 0
+_MIN_TX_INTERVAL = 4  # Minimum seconds between transactions
+
 # Default settings structure
 DEFAULT_SETTINGS = {
-    "frequent_addresses": [],  # List of dicts: {nickname, address, tags: [int]}
+    "frequent_addresses": [],  # List of dicts: {nickname, address, tags: [int or {value, name}]}
     "never_require_dtag": False,
     "sanity_check_dtag": True,
     "tx_log_enabled": True,
     "debug": False,
     "xrp_usd_conversion": False  # show USD conversion
 }
+
+def normalize_tag(tag):
+    """
+    Normalize a tag to the new format {value: int, name: str}.
+    Supports both old format (int) and new format (dict).
+    """
+    if isinstance(tag, dict):
+        return {"value": int(tag.get("value", 0)), "name": tag.get("name", "")}
+    else:
+        return {"value": int(tag), "name": ""}
+
+def get_tag_value(tag):
+    """Get the numeric value from a tag (supports both old and new format)."""
+    if isinstance(tag, dict):
+        return int(tag.get("value", 0))
+    return int(tag)
+
+def get_tag_name(tag):
+    """Get the nickname from a tag (returns empty string for old format)."""
+    if isinstance(tag, dict):
+        return tag.get("name", "")
+    return ""
+
+def format_tag_display(tag):
+    """Format a tag for display, showing nickname if available."""
+    value = get_tag_value(tag)
+    name = get_tag_name(tag)
+    if name:
+        return f"{value} ({name})"
+    return str(value)
+
+def format_tags_list(tags):
+    """Format a list of tags for display."""
+    if not tags:
+        return "none"
+    return ", ".join(format_tag_display(t) for t in tags)
 
 # if this ever changes it needs to be updated
 BASE_RESERVE_XRP = 1.0
@@ -597,6 +773,8 @@ def fetch_dtag_accounts_without_flag():
         return set()
 
 def sendXrp(wallet, destination, amountXrp, destinationTag=None):
+    global _LAST_TX_TIME
+
     def _send_payment(client_obj, wallet, destination, amountXrp, destinationTag):
         paymentParams = {
             "account": wallet.address,
@@ -618,29 +796,41 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
             print(f"  amountXrp: {amountXrp}")
             print(f"  destinationTag: {destinationTag}")
 
-        # Prepare tx hash and sequence for fallback check
-        paymentParams = {
-            "account": wallet.address,
-            "amount": xrp_to_drops(amountXrp),
-            "destination": destination
-        }
-        if destinationTag is not None:
-            paymentParams["destination_tag"] = int(destinationTag)
-        payment = Payment(**paymentParams)
-        txSeq = getattr(payment, "sequence", None)
-        txAccount = wallet.address
-        txHash = None
-        try:
-            txHash = payment.hash()
-        except Exception:
-            pass
+        # Rate limiting - prevent rapid successive transactions
+        now = time.time()
+        elapsed = now - _LAST_TX_TIME
+        if elapsed < _MIN_TX_INTERVAL and _LAST_TX_TIME > 0:
+            wait_time = _MIN_TX_INTERVAL - elapsed
+            print(f"Rate limit: waiting {wait_time:.1f}s before transaction...")
+            time.sleep(wait_time)
 
-        response = try_all_clients(_send_payment, wallet, destination, amountXrp, destinationTag, txHash=txHash, txSeq=txSeq, txAccount=txAccount)
+        # Calculate amount in drops for transaction tracking
+        amount_drops = xrp_to_drops(amountXrp)
+
+        # Pass transaction details to try_all_clients for double-spend prevention
+        response = try_all_clients(
+            _send_payment,
+            wallet, destination, amountXrp, destinationTag,
+            is_payment=True,
+            tx_account=wallet.address,
+            tx_destination=destination,
+            tx_amount_drops=amount_drops,
+            tx_dest_tag=int(destinationTag) if destinationTag is not None else None
+        )
         if debug:
             print("DEBUG: Response from submit_and_wait:", response)
 
         if response and response.is_successful():
-            print("Transaction successful!")
+            # Update last transaction time for rate limiting
+            _LAST_TX_TIME = time.time()
+
+            # Check if this was a recovered transaction (detected during retry prevention)
+            was_recovered = response.result.get('_recovered', False)
+            if was_recovered:
+                print("Transaction was already confirmed (detected during retry check).")
+            else:
+                print("Transaction successful!")
+
             print(f"Hash: {response.result['hash']}")
             result = response.result['meta']['TransactionResult']
             if result == 'tesSUCCESS':
@@ -866,27 +1056,37 @@ def manage_frequent_addresses_menu():
         else:
             for idx, entry in enumerate(fa):
                 tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+                tagstr = format_tags_list(tags)
                 print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
         print("a. Add new address")
         print("e. Edit address")
+        print("t. Manage tags for an address")
         print("d. Delete address")
         print("b. Back")
         choice = input("Select: ").strip().lower()
         if choice == "a":
             nickname = input("Enter nickname: ").strip()
             address = input("Enter address: ").strip()
-            tags_input = input("Enter tags (comma separated, or leave blank): ").strip()
+            print("Now add tags. For each tag, you can give it a nickname.")
+            print("Enter tags one at a time. Leave blank when done.")
             tags = []
-            if tags_input:
-                for t in tags_input.split(","):
-                    t = t.strip()
-                    if t.isdigit():
-                        tags.append(int(t))
+            while True:
+                tag_val = input("  Tag number (or Enter to finish): ").strip()
+                if not tag_val:
+                    break
+                if not tag_val.isdigit():
+                    print("  Invalid tag number.")
+                    continue
+                tag_name = input(f"  Nickname for tag {tag_val} (or Enter to skip): ").strip()
+                if tag_name:
+                    tags.append({"value": int(tag_val), "name": tag_name})
+                else:
+                    tags.append({"value": int(tag_val), "name": ""})
             fa.append({"nickname": nickname, "address": address, "tags": tags})
             settings["frequent_addresses"] = fa
             save_settings(settings)
             print("Address added.")
+            pause()
         elif choice == "e":
             idx = input("Enter number to edit: ").strip()
             if idx.isdigit() and 1 <= int(idx) <= len(fa):
@@ -895,22 +1095,25 @@ def manage_frequent_addresses_menu():
                 print(f"Editing {entry['nickname']} - {entry['address']}")
                 new_nick = input(f"New nickname (or Enter to keep '{entry['nickname']}'): ").strip()
                 new_addr = input(f"New address (or Enter to keep '{entry['address']}'): ").strip()
-                new_tags = input(f"New tags (comma separated, or Enter to keep '{', '.join(str(t) for t in entry.get('tags', []))}'): ").strip()
                 if new_nick:
                     entry['nickname'] = new_nick
                 if new_addr:
                     entry['address'] = new_addr
-                if new_tags:
-                    tags = []
-                    for t in new_tags.split(","):
-                        t = t.strip()
-                        if t.isdigit():
-                            tags.append(int(t))
-                    entry['tags'] = tags
                 fa[idx] = entry
                 settings["frequent_addresses"] = fa
                 save_settings(settings)
-                print("Address updated.")
+                print("Address updated. Use 't' to manage tags separately.")
+                pause()
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "t":
+            # Manage tags submenu
+            idx = input("Enter address number to manage tags: ").strip()
+            if idx.isdigit() and 1 <= int(idx) <= len(fa):
+                idx = int(idx) - 1
+                entry = fa[idx]
+                manage_address_tags(entry, settings, fa, idx)
             else:
                 print("Invalid selection.")
                 time.sleep(2)
@@ -929,6 +1132,89 @@ def manage_frequent_addresses_menu():
                 time.sleep(2)
         elif choice == "b":
             clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
+def manage_address_tags(entry, settings, fa, entry_idx):
+    """Submenu to manage tags for a specific address."""
+    while True:
+        clear_screen()
+        tags = entry.get("tags", [])
+        print(f"\nManaging tags for: {entry['nickname']} ({entry['address']})")
+        print("\nCurrent tags:")
+        if not tags:
+            print("  (none)")
+        else:
+            for i, tag in enumerate(tags, 1):
+                print(f"  {i}. {format_tag_display(tag)}")
+        print("\na. Add tag")
+        print("e. Edit tag nickname")
+        print("d. Delete tag")
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "a":
+            tag_val = input("Enter tag number: ").strip()
+            if not tag_val.isdigit():
+                print("Invalid tag number.")
+                time.sleep(2)
+                continue
+            tag_name = input(f"Nickname for tag {tag_val} (or Enter to skip): ").strip()
+            new_tag = {"value": int(tag_val), "name": tag_name}
+            tags.append(new_tag)
+            entry["tags"] = tags
+            fa[entry_idx] = entry
+            settings["frequent_addresses"] = fa
+            save_settings(settings)
+            print("Tag added.")
+            pause()
+        elif choice == "e":
+            if not tags:
+                print("No tags to edit.")
+                time.sleep(2)
+                continue
+            tag_idx = input("Enter tag number to edit: ").strip()
+            if tag_idx.isdigit() and 1 <= int(tag_idx) <= len(tags):
+                tag_idx = int(tag_idx) - 1
+                tag = normalize_tag(tags[tag_idx])
+                print(f"Editing tag: {format_tag_display(tag)}")
+                new_name = input(f"New nickname (or Enter to keep '{tag['name']}'): ").strip()
+                new_val = input(f"New tag value (or Enter to keep {tag['value']}): ").strip()
+                if new_name:
+                    tag["name"] = new_name
+                if new_val and new_val.isdigit():
+                    tag["value"] = int(new_val)
+                tags[tag_idx] = tag
+                entry["tags"] = tags
+                fa[entry_idx] = entry
+                settings["frequent_addresses"] = fa
+                save_settings(settings)
+                print("Tag updated.")
+                pause()
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "d":
+            if not tags:
+                print("No tags to delete.")
+                time.sleep(2)
+                continue
+            tag_idx = input("Enter tag number to delete: ").strip()
+            if tag_idx.isdigit() and 1 <= int(tag_idx) <= len(tags):
+                tag_idx = int(tag_idx) - 1
+                confirm = input(f"Delete tag {format_tag_display(tags[tag_idx])}? (y/N): ").strip().lower()
+                if confirm == "y":
+                    del tags[tag_idx]
+                    entry["tags"] = tags
+                    fa[entry_idx] = entry
+                    settings["frequent_addresses"] = fa
+                    save_settings(settings)
+                    print("Tag deleted.")
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "b":
             break
         else:
             print("Invalid option.")
@@ -1156,84 +1442,6 @@ def developer_settings_menu():
             print("Invalid option.")
             time.sleep(2)
 
-def manage_frequent_addresses(settings):
-    while True:
-        clear_screen()
-        print("\nFrequent Addresses:")
-        fa = settings.get("frequent_addresses", [])
-        if not fa:
-            print("  (none)")
-        else:
-            for idx, entry in enumerate(fa):
-                tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
-                print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
-        print("a. Add new address")
-        print("e. Edit address")
-        print("d. Delete address")
-        print("b. Back")
-        choice = input("Select: ").strip().lower()
-        if choice == "a":
-            nickname = input("Enter nickname: ").strip()
-            address = input("Enter address: ").strip()
-            tags_input = input("Enter tags (comma separated, or leave blank): ").strip()
-            tags = []
-            if tags_input:
-                for t in tags_input.split(","):
-                    t = t.strip()
-                    if t.isdigit():
-                        tags.append(int(t))
-            fa.append({"nickname": nickname, "address": address, "tags": tags})
-            settings["frequent_addresses"] = fa
-            save_settings(settings)
-            print("Address added.")
-        elif choice == "e":
-            idx = input("Enter number to edit: ").strip()
-            if idx.isdigit() and 1 <= int(idx) <= len(fa):
-                idx = int(idx) - 1
-                entry = fa[idx]
-                print(f"Editing {entry['nickname']} - {entry['address']}")
-                new_nick = input(f"New nickname (or Enter to keep '{entry['nickname']}'): ").strip()
-                new_addr = input(f"New address (or Enter to keep '{entry['address']}'): ").strip()
-                new_tags = input(f"New tags (comma separated, or Enter to keep '{', '.join(str(t) for t in entry.get('tags', []))}'): ").strip()
-                if new_nick:
-                    entry['nickname'] = new_nick
-                if new_addr:
-                    entry['address'] = new_addr
-                if new_tags:
-                    tags = []
-                    for t in new_tags.split(","):
-                        t = t.strip()
-                        if t.isdigit():
-                            tags.append(int(t))
-                    entry['tags'] = tags
-                fa[idx] = entry
-                settings["frequent_addresses"] = fa
-                save_settings(settings)
-                print("Address updated.")
-            else:
-                print("Invalid selection.")
-                time.sleep(3.5)
-        elif choice == "d":
-            idx = input("Enter number to delete: ").strip()
-            if idx.isdigit() and 1 <= int(idx) <= len(fa):
-                idx = int(idx) - 1
-                confirm = input(f"Delete {fa[idx]['nickname']} ({fa[idx]['address']})? (y/N): ").strip().lower()
-                if confirm == "y":
-                    del fa[idx]
-                    settings["frequent_addresses"] = fa
-                    save_settings(settings)
-                    print("Deleted.")
-            else:
-                print("Invalid selection.")
-                time.sleep(3.5)
-        elif choice == "b":
-            clear_screen()
-            break
-        else:
-            print("Invalid option.")
-            time.sleep(3.5)
-
 def select_frequent_address(settings):
     clear_screen()
     fa = settings.get("frequent_addresses", [])
@@ -1242,7 +1450,7 @@ def select_frequent_address(settings):
     print("\nFrequent Addresses:")
     for idx, entry in enumerate(fa):
         tags = entry.get("tags", [])
-        tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+        tagstr = format_tags_list(tags)
         print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
     print("b. Back")
     choice = input("Select address to use (number): ").strip().lower()
@@ -1252,12 +1460,15 @@ def select_frequent_address(settings):
     if choice.isdigit() and 1 <= int(choice) <= len(fa):
         entry = fa[int(choice)-1]
         # If multiple tags, ask which one
-        if entry.get("tags"):
-            print("Available tags: " + ", ".join(str(t) for t in entry["tags"]))
-            tag_choice = input("Select tag (number or leave blank for none): ").strip()
-            if tag_choice.isdigit():
+        tags = entry.get("tags", [])
+        if tags:
+            print("Available tags:")
+            for i, t in enumerate(tags, 1):
+                print(f"  {i}. {format_tag_display(t)}")
+            tag_choice = input("Select tag number (or leave blank for none): ").strip()
+            if tag_choice.isdigit() and 1 <= int(tag_choice) <= len(tags):
                 clear_screen()
-                return entry["address"], int(tag_choice)
+                return entry["address"], get_tag_value(tags[int(tag_choice)-1])
             else:
                 clear_screen()
                 return entry["address"], None
@@ -1533,7 +1744,7 @@ def send_xrp_saved(wallet, settings):
                 return
             for idx, entry in enumerate(fa):
                 tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+                tagstr = format_tags_list(tags)
                 print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
             print("b. Back")
             choice = input("Select address to use (number): ").strip().lower()
@@ -1553,7 +1764,7 @@ def send_xrp_saved(wallet, settings):
                 if tags:
                     print("Available tags for this address:")
                     for i, t in enumerate(tags, 1):
-                        print(f"  {i}. {t}")
+                        print(f"  {i}. {format_tag_display(t)}")
                     print("  o. Other (enter a custom tag)")
                     tag_choice = input("Select a tag by number, 'o' to enter a different tag from pre-saved ones, or press Enter to skip: ").strip()
                     if tag_choice == "":
@@ -1568,7 +1779,7 @@ def send_xrp_saved(wallet, settings):
                             clear_screen()
                             return
                     elif tag_choice.isdigit() and 1 <= int(tag_choice) <= len(tags):
-                        destTag = tags[int(tag_choice)-1]
+                        destTag = get_tag_value(tags[int(tag_choice)-1])
                     else:
                         print("Invalid tag selection.")
                         time.sleep(3.5)
