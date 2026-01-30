@@ -1,6 +1,3 @@
-import asyncio
-
-from decimal import MIN_EMIN
 from io import StringIO
 import random
 import csv
@@ -40,36 +37,175 @@ def get_redundant_clients():
     """Return a list of JsonRpcClient objects for all endpoints."""
     return [JsonRpcClient(url) for url in XRPL_ENDPOINTS]
 
+def get_account_sequence(client, address):
+    """Get the current sequence number for an account. Returns None on error."""
+    try:
+        acct_info = AccountInfo(account=address, ledger_index="validated")
+        response = client.request(acct_info)
+        if response.is_successful():
+            return int(response.result["account_data"]["Sequence"])
+    except Exception:
+        pass
+    return None
+
+def check_recent_tx_exists(client, address, destination, amount_drops, dest_tag=None, since_sequence=None):
+    """
+    Check if a transaction matching our parameters exists in recent account history.
+    This helps detect if a transaction went through even if we didn't get confirmation.
+    Returns the tx hash if found, None otherwise.
+    """
+    try:
+        req = {
+            "method": "account_tx",
+            "params": [{
+                "account": address,
+                "ledger_index_min": -1,
+                "ledger_index_max": -1,
+                "limit": 10,
+                "forward": False
+            }]
+        }
+        resp = client.request(req)
+        if not resp.is_successful():
+            return None
+
+        txs = resp.result.get("transactions", [])
+        for tx_entry in txs:
+            tx = tx_entry.get("tx", {})
+            meta = tx_entry.get("meta", {})
+
+            # Only check Payment transactions from our account
+            if tx.get("TransactionType") != "Payment":
+                continue
+            if tx.get("Account") != address:
+                continue
+
+            # Check sequence number - if we have a baseline, skip older txs
+            if since_sequence is not None and tx.get("Sequence", 0) < since_sequence:
+                continue
+
+            # Check destination and amount match
+            if tx.get("Destination") != destination:
+                continue
+
+            # Amount could be string (drops) or dict (issued currency)
+            tx_amount = tx.get("Amount")
+            if isinstance(tx_amount, str) and tx_amount == str(amount_drops):
+                # Check destination tag if relevant
+                tx_dtag = tx.get("DestinationTag")
+                if dest_tag is None and tx_dtag is None:
+                    if meta.get("TransactionResult") == "tesSUCCESS":
+                        return tx.get("hash")
+                elif dest_tag is not None and tx_dtag == dest_tag:
+                    if meta.get("TransactionResult") == "tesSUCCESS":
+                        return tx.get("hash")
+        return None
+    except Exception:
+        return None
+
 def try_all_clients(func, *args, **kwargs):
-    # try all XRPL endpoints in order, may cause lag. Sometimes it sends before it even says it's done
+    """
+    Try all XRPL endpoints in order with robust double-spend prevention.
+    For payment operations, tracks sequence numbers and checks for existing transactions
+    before retrying to prevent accidental double-spending.
+    """
     last_exception = None
     last_response = None
-    txHash = kwargs.pop("txHash", None)
-    txSeq = kwargs.pop("txSeq", None)
-    txAccount = kwargs.pop("txAccount", None)
+
+    # Extract transaction tracking params (used for payment operations)
+    tx_account = kwargs.pop("tx_account", None)
+    tx_destination = kwargs.pop("tx_destination", None)
+    tx_amount_drops = kwargs.pop("tx_amount_drops", None)
+    tx_dest_tag = kwargs.pop("tx_dest_tag", None)
+    is_payment = kwargs.pop("is_payment", False)
+
+    # Track the starting sequence number to detect if tx went through
+    starting_sequence = None
+
     for idx, url in enumerate(XRPL_ENDPOINTS):
         try:
             c = JsonRpcClient(url)
-            # Before fallback, check if txn is validated
-            if idx > 0 and txHash and txAccount:
-                if isTxnValidated(c, txHash, txAccount, txSeq):
-                    print(f"Transaction already validated on fallback check at {url}!")
-                    return last_response
+
+            # For payment operations, implement double-spend prevention
+            if is_payment and tx_account and idx > 0:
+                print(f"Checking if previous transaction attempt succeeded before retry...")
+                time.sleep(2)  # Give the network time to propagate
+
+                # Check 1: Did the sequence number increase?
+                current_seq = get_account_sequence(c, tx_account)
+                if starting_sequence is not None and current_seq is not None:
+                    if current_seq > starting_sequence:
+                        # Sequence increased - a transaction likely went through
+                        # Verify it was our intended transaction
+                        existing_hash = check_recent_tx_exists(
+                            c, tx_account, tx_destination, tx_amount_drops,
+                            tx_dest_tag, starting_sequence
+                        )
+                        if existing_hash:
+                            print(f"Transaction already confirmed! Hash: {existing_hash}")
+                            print("Skipping retry to prevent double-spend.")
+                            # Return a mock successful response
+                            return type('obj', (object,), {
+                                'is_successful': lambda: True,
+                                'result': {
+                                    'hash': existing_hash,
+                                    'meta': {'TransactionResult': 'tesSUCCESS'},
+                                    '_recovered': True
+                                }
+                            })()
+                        else:
+                            print(f"Warning: Sequence increased but couldn't verify our tx. Checking further...")
+
+                # Check 2: Look for our specific transaction in recent history
+                existing_hash = check_recent_tx_exists(
+                    c, tx_account, tx_destination, tx_amount_drops,
+                    tx_dest_tag, starting_sequence
+                )
+                if existing_hash:
+                    print(f"Found existing transaction with hash: {existing_hash}")
+                    print("Skipping retry to prevent double-spend.")
+                    return type('obj', (object,), {
+                        'is_successful': lambda: True,
+                        'result': {
+                            'hash': existing_hash,
+                            'meta': {'TransactionResult': 'tesSUCCESS'},
+                            '_recovered': True
+                        }
+                    })()
+
+            # Get starting sequence on first attempt for payments
+            if is_payment and tx_account and idx == 0:
+                starting_sequence = get_account_sequence(c, tx_account)
+
             response = func(c, *args, **kwargs)
             last_response = response
+
             if hasattr(response, "is_successful") and response.is_successful():
                 if url != XRPL_ENDPOINTS[0]:
                     print(f"Notice: Fallback XRPL endpoint used: {url}")
                 return response
+
         except Exception as e:
             last_exception = e
             print(f"Warning: XRPL endpoint {url} failed: {e}")
+
+            # Add delay before retry to let network settle
+            if idx < len(XRPL_ENDPOINTS) - 1:
+                delay = min(2 * (idx + 1), 6)  # 2s, 4s, 6s max
+                print(f"Waiting {delay}s before trying next endpoint...")
+                time.sleep(delay)
+
     if last_exception:
         raise last_exception
     return last_response
 
-def isTxnValidated(client, txHash, account, seq=None):
-    # Check if txn is in validated ledger
+def isTxnValidated(client, txHash, account=None, seq=None):
+    """
+    Check if a transaction is validated on the ledger.
+    Returns True if the transaction exists and was successful.
+    """
+    if not txHash:
+        return False
     try:
         req = {
             "method": "tx",
@@ -78,11 +214,11 @@ def isTxnValidated(client, txHash, account, seq=None):
         resp = client.request(req)
         result = resp.result
         if result.get("validated") and result.get("meta", {}).get("TransactionResult") == "tesSUCCESS":
-            # Optionally check sequence
+            # Optionally verify sequence
             if seq is not None and result.get("Sequence") != seq:
                 return False
-            # Confirm account matches
-            if result.get("Account") != account:
+            # Optionally verify account
+            if account is not None and result.get("Account") != account:
                 return False
             return True
         return False
@@ -128,6 +264,10 @@ _DTAG_ACCOUNTS_CACHE = {
     "accounts": None,
     "last_fetch": 0
 }
+
+# Track last transaction time for rate limiting
+_LAST_TX_TIME = 0
+_MIN_TX_INTERVAL = 4  # Minimum seconds between transactions
 
 # Default settings structure
 DEFAULT_SETTINGS = {
@@ -597,6 +737,8 @@ def fetch_dtag_accounts_without_flag():
         return set()
 
 def sendXrp(wallet, destination, amountXrp, destinationTag=None):
+    global _LAST_TX_TIME
+
     def _send_payment(client_obj, wallet, destination, amountXrp, destinationTag):
         paymentParams = {
             "account": wallet.address,
@@ -618,29 +760,41 @@ def sendXrp(wallet, destination, amountXrp, destinationTag=None):
             print(f"  amountXrp: {amountXrp}")
             print(f"  destinationTag: {destinationTag}")
 
-        # Prepare tx hash and sequence for fallback check
-        paymentParams = {
-            "account": wallet.address,
-            "amount": xrp_to_drops(amountXrp),
-            "destination": destination
-        }
-        if destinationTag is not None:
-            paymentParams["destination_tag"] = int(destinationTag)
-        payment = Payment(**paymentParams)
-        txSeq = getattr(payment, "sequence", None)
-        txAccount = wallet.address
-        txHash = None
-        try:
-            txHash = payment.hash()
-        except Exception:
-            pass
+        # Rate limiting - prevent rapid successive transactions
+        now = time.time()
+        elapsed = now - _LAST_TX_TIME
+        if elapsed < _MIN_TX_INTERVAL and _LAST_TX_TIME > 0:
+            wait_time = _MIN_TX_INTERVAL - elapsed
+            print(f"Rate limit: waiting {wait_time:.1f}s before transaction...")
+            time.sleep(wait_time)
 
-        response = try_all_clients(_send_payment, wallet, destination, amountXrp, destinationTag, txHash=txHash, txSeq=txSeq, txAccount=txAccount)
+        # Calculate amount in drops for transaction tracking
+        amount_drops = xrp_to_drops(amountXrp)
+
+        # Pass transaction details to try_all_clients for double-spend prevention
+        response = try_all_clients(
+            _send_payment,
+            wallet, destination, amountXrp, destinationTag,
+            is_payment=True,
+            tx_account=wallet.address,
+            tx_destination=destination,
+            tx_amount_drops=amount_drops,
+            tx_dest_tag=int(destinationTag) if destinationTag is not None else None
+        )
         if debug:
             print("DEBUG: Response from submit_and_wait:", response)
 
         if response and response.is_successful():
-            print("Transaction successful!")
+            # Update last transaction time for rate limiting
+            _LAST_TX_TIME = time.time()
+
+            # Check if this was a recovered transaction (detected during retry prevention)
+            was_recovered = response.result.get('_recovered', False)
+            if was_recovered:
+                print("Transaction was already confirmed (detected during retry check).")
+            else:
+                print("Transaction successful!")
+
             print(f"Hash: {response.result['hash']}")
             result = response.result['meta']['TransactionResult']
             if result == 'tesSUCCESS':
