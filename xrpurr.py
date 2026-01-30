@@ -271,13 +271,49 @@ _MIN_TX_INTERVAL = 4  # Minimum seconds between transactions
 
 # Default settings structure
 DEFAULT_SETTINGS = {
-    "frequent_addresses": [],  # List of dicts: {nickname, address, tags: [int]}
+    "frequent_addresses": [],  # List of dicts: {nickname, address, tags: [int or {value, name}]}
     "never_require_dtag": False,
     "sanity_check_dtag": True,
     "tx_log_enabled": True,
     "debug": False,
     "xrp_usd_conversion": False  # show USD conversion
 }
+
+def normalize_tag(tag):
+    """
+    Normalize a tag to the new format {value: int, name: str}.
+    Supports both old format (int) and new format (dict).
+    """
+    if isinstance(tag, dict):
+        return {"value": int(tag.get("value", 0)), "name": tag.get("name", "")}
+    else:
+        return {"value": int(tag), "name": ""}
+
+def get_tag_value(tag):
+    """Get the numeric value from a tag (supports both old and new format)."""
+    if isinstance(tag, dict):
+        return int(tag.get("value", 0))
+    return int(tag)
+
+def get_tag_name(tag):
+    """Get the nickname from a tag (returns empty string for old format)."""
+    if isinstance(tag, dict):
+        return tag.get("name", "")
+    return ""
+
+def format_tag_display(tag):
+    """Format a tag for display, showing nickname if available."""
+    value = get_tag_value(tag)
+    name = get_tag_name(tag)
+    if name:
+        return f"{value} ({name})"
+    return str(value)
+
+def format_tags_list(tags):
+    """Format a list of tags for display."""
+    if not tags:
+        return "none"
+    return ", ".join(format_tag_display(t) for t in tags)
 
 # if this ever changes it needs to be updated
 BASE_RESERVE_XRP = 1.0
@@ -1020,27 +1056,37 @@ def manage_frequent_addresses_menu():
         else:
             for idx, entry in enumerate(fa):
                 tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+                tagstr = format_tags_list(tags)
                 print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
         print("a. Add new address")
         print("e. Edit address")
+        print("t. Manage tags for an address")
         print("d. Delete address")
         print("b. Back")
         choice = input("Select: ").strip().lower()
         if choice == "a":
             nickname = input("Enter nickname: ").strip()
             address = input("Enter address: ").strip()
-            tags_input = input("Enter tags (comma separated, or leave blank): ").strip()
+            print("Now add tags. For each tag, you can give it a nickname.")
+            print("Enter tags one at a time. Leave blank when done.")
             tags = []
-            if tags_input:
-                for t in tags_input.split(","):
-                    t = t.strip()
-                    if t.isdigit():
-                        tags.append(int(t))
+            while True:
+                tag_val = input("  Tag number (or Enter to finish): ").strip()
+                if not tag_val:
+                    break
+                if not tag_val.isdigit():
+                    print("  Invalid tag number.")
+                    continue
+                tag_name = input(f"  Nickname for tag {tag_val} (or Enter to skip): ").strip()
+                if tag_name:
+                    tags.append({"value": int(tag_val), "name": tag_name})
+                else:
+                    tags.append({"value": int(tag_val), "name": ""})
             fa.append({"nickname": nickname, "address": address, "tags": tags})
             settings["frequent_addresses"] = fa
             save_settings(settings)
             print("Address added.")
+            pause()
         elif choice == "e":
             idx = input("Enter number to edit: ").strip()
             if idx.isdigit() and 1 <= int(idx) <= len(fa):
@@ -1049,22 +1095,25 @@ def manage_frequent_addresses_menu():
                 print(f"Editing {entry['nickname']} - {entry['address']}")
                 new_nick = input(f"New nickname (or Enter to keep '{entry['nickname']}'): ").strip()
                 new_addr = input(f"New address (or Enter to keep '{entry['address']}'): ").strip()
-                new_tags = input(f"New tags (comma separated, or Enter to keep '{', '.join(str(t) for t in entry.get('tags', []))}'): ").strip()
                 if new_nick:
                     entry['nickname'] = new_nick
                 if new_addr:
                     entry['address'] = new_addr
-                if new_tags:
-                    tags = []
-                    for t in new_tags.split(","):
-                        t = t.strip()
-                        if t.isdigit():
-                            tags.append(int(t))
-                    entry['tags'] = tags
                 fa[idx] = entry
                 settings["frequent_addresses"] = fa
                 save_settings(settings)
-                print("Address updated.")
+                print("Address updated. Use 't' to manage tags separately.")
+                pause()
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "t":
+            # Manage tags submenu
+            idx = input("Enter address number to manage tags: ").strip()
+            if idx.isdigit() and 1 <= int(idx) <= len(fa):
+                idx = int(idx) - 1
+                entry = fa[idx]
+                manage_address_tags(entry, settings, fa, idx)
             else:
                 print("Invalid selection.")
                 time.sleep(2)
@@ -1083,6 +1132,89 @@ def manage_frequent_addresses_menu():
                 time.sleep(2)
         elif choice == "b":
             clear_screen()
+            break
+        else:
+            print("Invalid option.")
+            time.sleep(2)
+
+def manage_address_tags(entry, settings, fa, entry_idx):
+    """Submenu to manage tags for a specific address."""
+    while True:
+        clear_screen()
+        tags = entry.get("tags", [])
+        print(f"\nManaging tags for: {entry['nickname']} ({entry['address']})")
+        print("\nCurrent tags:")
+        if not tags:
+            print("  (none)")
+        else:
+            for i, tag in enumerate(tags, 1):
+                print(f"  {i}. {format_tag_display(tag)}")
+        print("\na. Add tag")
+        print("e. Edit tag nickname")
+        print("d. Delete tag")
+        print("b. Back")
+        choice = input("Select: ").strip().lower()
+        if choice == "a":
+            tag_val = input("Enter tag number: ").strip()
+            if not tag_val.isdigit():
+                print("Invalid tag number.")
+                time.sleep(2)
+                continue
+            tag_name = input(f"Nickname for tag {tag_val} (or Enter to skip): ").strip()
+            new_tag = {"value": int(tag_val), "name": tag_name}
+            tags.append(new_tag)
+            entry["tags"] = tags
+            fa[entry_idx] = entry
+            settings["frequent_addresses"] = fa
+            save_settings(settings)
+            print("Tag added.")
+            pause()
+        elif choice == "e":
+            if not tags:
+                print("No tags to edit.")
+                time.sleep(2)
+                continue
+            tag_idx = input("Enter tag number to edit: ").strip()
+            if tag_idx.isdigit() and 1 <= int(tag_idx) <= len(tags):
+                tag_idx = int(tag_idx) - 1
+                tag = normalize_tag(tags[tag_idx])
+                print(f"Editing tag: {format_tag_display(tag)}")
+                new_name = input(f"New nickname (or Enter to keep '{tag['name']}'): ").strip()
+                new_val = input(f"New tag value (or Enter to keep {tag['value']}): ").strip()
+                if new_name:
+                    tag["name"] = new_name
+                if new_val and new_val.isdigit():
+                    tag["value"] = int(new_val)
+                tags[tag_idx] = tag
+                entry["tags"] = tags
+                fa[entry_idx] = entry
+                settings["frequent_addresses"] = fa
+                save_settings(settings)
+                print("Tag updated.")
+                pause()
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "d":
+            if not tags:
+                print("No tags to delete.")
+                time.sleep(2)
+                continue
+            tag_idx = input("Enter tag number to delete: ").strip()
+            if tag_idx.isdigit() and 1 <= int(tag_idx) <= len(tags):
+                tag_idx = int(tag_idx) - 1
+                confirm = input(f"Delete tag {format_tag_display(tags[tag_idx])}? (y/N): ").strip().lower()
+                if confirm == "y":
+                    del tags[tag_idx]
+                    entry["tags"] = tags
+                    fa[entry_idx] = entry
+                    settings["frequent_addresses"] = fa
+                    save_settings(settings)
+                    print("Tag deleted.")
+            else:
+                print("Invalid selection.")
+                time.sleep(2)
+        elif choice == "b":
             break
         else:
             print("Invalid option.")
@@ -1310,84 +1442,6 @@ def developer_settings_menu():
             print("Invalid option.")
             time.sleep(2)
 
-def manage_frequent_addresses(settings):
-    while True:
-        clear_screen()
-        print("\nFrequent Addresses:")
-        fa = settings.get("frequent_addresses", [])
-        if not fa:
-            print("  (none)")
-        else:
-            for idx, entry in enumerate(fa):
-                tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
-                print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
-        print("a. Add new address")
-        print("e. Edit address")
-        print("d. Delete address")
-        print("b. Back")
-        choice = input("Select: ").strip().lower()
-        if choice == "a":
-            nickname = input("Enter nickname: ").strip()
-            address = input("Enter address: ").strip()
-            tags_input = input("Enter tags (comma separated, or leave blank): ").strip()
-            tags = []
-            if tags_input:
-                for t in tags_input.split(","):
-                    t = t.strip()
-                    if t.isdigit():
-                        tags.append(int(t))
-            fa.append({"nickname": nickname, "address": address, "tags": tags})
-            settings["frequent_addresses"] = fa
-            save_settings(settings)
-            print("Address added.")
-        elif choice == "e":
-            idx = input("Enter number to edit: ").strip()
-            if idx.isdigit() and 1 <= int(idx) <= len(fa):
-                idx = int(idx) - 1
-                entry = fa[idx]
-                print(f"Editing {entry['nickname']} - {entry['address']}")
-                new_nick = input(f"New nickname (or Enter to keep '{entry['nickname']}'): ").strip()
-                new_addr = input(f"New address (or Enter to keep '{entry['address']}'): ").strip()
-                new_tags = input(f"New tags (comma separated, or Enter to keep '{', '.join(str(t) for t in entry.get('tags', []))}'): ").strip()
-                if new_nick:
-                    entry['nickname'] = new_nick
-                if new_addr:
-                    entry['address'] = new_addr
-                if new_tags:
-                    tags = []
-                    for t in new_tags.split(","):
-                        t = t.strip()
-                        if t.isdigit():
-                            tags.append(int(t))
-                    entry['tags'] = tags
-                fa[idx] = entry
-                settings["frequent_addresses"] = fa
-                save_settings(settings)
-                print("Address updated.")
-            else:
-                print("Invalid selection.")
-                time.sleep(3.5)
-        elif choice == "d":
-            idx = input("Enter number to delete: ").strip()
-            if idx.isdigit() and 1 <= int(idx) <= len(fa):
-                idx = int(idx) - 1
-                confirm = input(f"Delete {fa[idx]['nickname']} ({fa[idx]['address']})? (y/N): ").strip().lower()
-                if confirm == "y":
-                    del fa[idx]
-                    settings["frequent_addresses"] = fa
-                    save_settings(settings)
-                    print("Deleted.")
-            else:
-                print("Invalid selection.")
-                time.sleep(3.5)
-        elif choice == "b":
-            clear_screen()
-            break
-        else:
-            print("Invalid option.")
-            time.sleep(3.5)
-
 def select_frequent_address(settings):
     clear_screen()
     fa = settings.get("frequent_addresses", [])
@@ -1396,7 +1450,7 @@ def select_frequent_address(settings):
     print("\nFrequent Addresses:")
     for idx, entry in enumerate(fa):
         tags = entry.get("tags", [])
-        tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+        tagstr = format_tags_list(tags)
         print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
     print("b. Back")
     choice = input("Select address to use (number): ").strip().lower()
@@ -1406,12 +1460,15 @@ def select_frequent_address(settings):
     if choice.isdigit() and 1 <= int(choice) <= len(fa):
         entry = fa[int(choice)-1]
         # If multiple tags, ask which one
-        if entry.get("tags"):
-            print("Available tags: " + ", ".join(str(t) for t in entry["tags"]))
-            tag_choice = input("Select tag (number or leave blank for none): ").strip()
-            if tag_choice.isdigit():
+        tags = entry.get("tags", [])
+        if tags:
+            print("Available tags:")
+            for i, t in enumerate(tags, 1):
+                print(f"  {i}. {format_tag_display(t)}")
+            tag_choice = input("Select tag number (or leave blank for none): ").strip()
+            if tag_choice.isdigit() and 1 <= int(tag_choice) <= len(tags):
                 clear_screen()
-                return entry["address"], int(tag_choice)
+                return entry["address"], get_tag_value(tags[int(tag_choice)-1])
             else:
                 clear_screen()
                 return entry["address"], None
@@ -1687,7 +1744,7 @@ def send_xrp_saved(wallet, settings):
                 return
             for idx, entry in enumerate(fa):
                 tags = entry.get("tags", [])
-                tagstr = ", ".join(str(t) for t in tags) if tags else "none"
+                tagstr = format_tags_list(tags)
                 print(f"  {idx+1}. {entry['nickname']} - {entry['address']} (tags: {tagstr})")
             print("b. Back")
             choice = input("Select address to use (number): ").strip().lower()
@@ -1707,7 +1764,7 @@ def send_xrp_saved(wallet, settings):
                 if tags:
                     print("Available tags for this address:")
                     for i, t in enumerate(tags, 1):
-                        print(f"  {i}. {t}")
+                        print(f"  {i}. {format_tag_display(t)}")
                     print("  o. Other (enter a custom tag)")
                     tag_choice = input("Select a tag by number, 'o' to enter a different tag from pre-saved ones, or press Enter to skip: ").strip()
                     if tag_choice == "":
@@ -1722,7 +1779,7 @@ def send_xrp_saved(wallet, settings):
                             clear_screen()
                             return
                     elif tag_choice.isdigit() and 1 <= int(tag_choice) <= len(tags):
-                        destTag = tags[int(tag_choice)-1]
+                        destTag = get_tag_value(tags[int(tag_choice)-1])
                     else:
                         print("Invalid tag selection.")
                         time.sleep(3.5)
