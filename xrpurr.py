@@ -1,6 +1,4 @@
-from io import StringIO
 import random
-import csv
 import os
 import hashlib
 import base64
@@ -19,7 +17,7 @@ import urllib.request
 import traceback  
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-VERSION = '1.2'
+VERSION = '1.5'
 
 # extra XRPL Mainnet endpoints for redundancy!
 XRPL_ENDPOINTS = [
@@ -29,7 +27,7 @@ XRPL_ENDPOINTS = [
 ]
 testnetUrl = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(XRPL_ENDPOINTS[0])
-testmode = True
+testmode = False
 if testmode == True:
     XRPL_ENDPOINTS = [testnetUrl]
 
@@ -259,10 +257,137 @@ os.makedirs(wallets_dir, exist_ok=True)
 SETTINGS_FILE = os.path.join(BASEDIR, "src", "xrpurr_settings.json")
 TX_LOG_FILE = os.path.join(BASEDIR, "src", "xrpurr_txlog.json")
 
-# Cache for dtag_accounts_without_flag list
-_DTAG_ACCOUNTS_CACHE = {
-    "accounts": None,
-    "last_fetch": 0
+# Exchanges that need a dtag but don't enforce it
+# Hardcoded to avoid external dependency
+DTAG_ACCOUNTS = {
+    "rKSU67YATC7hJ8Y3CU4GKPBDhQYS2sQ5hG",  # 58 COIN
+    "rM1jLHkWjPvRmrFGFR8Lfit2CJpQ943cRV",  # ACE Exchange
+    "rNdxqV8iU2eomFm186YkWUvNzoR9iyyEkR",  # AEX
+    "rQBTTasbev5FY8gKJAE2ZxXaPw2v2NcFFx",  # AlphaEx
+    "r34mWrX3cZCZpJEsqe1F6PNotREXwj1f3r",  # AltCoinTrader
+    "rKWwHKXcuK9RuooGLwo19ThvSzTvtA1usD",  # Anycoin Direct
+    "rh1Qs81SBNLXzg1hQppVH53FDqfoE9NZFd",  # B2BX
+    "raGSfQHWoGqWneCpxKMJcJrSaMzf1sSHyT",  # BC.Game
+    "rMvYS27SYs5dXdFsUgpvv1CSrPsCz7ePF5",  # BINANCE.US
+    "r4Q5vVUA5rCLdB4UQyQgM9U485nLeZF1dK",  # BKEX
+    "rL3ggCUKaiR1iywkGW6PACbn3Y8g5edWiY",  # BTC Markets
+    "rpd6t1Z7o4ME2jgzhfBjYUwhpEcBnZufGG",  # BTC Trade UA
+    "rGmmsmyspyPsuBT4L5pLvAqTjxYqaFq4U5",  # BTCTurk
+    "rKm6XqTFgJUpwwHhuXoPdGPtcbEhtj3Sza",  # BW
+    "rHZQVErv6UZTtkM4NVexS1Z5dTvuek2RbX",  # Bibox
+    "ra8F9swTXUhBUCjjDUdWX8XiqNzFjrN2CW",  # BigONE
+    "r9hCYQF3WeENSu3KE2vjHXVzmw6B4CNbnX",  # Biki
+    "rhQADfs6UxfP7iUPwsU7b3uwDVQLLgFcu8",  # Binance
+    "rJb5KsHsDHF1YS5B5DU6QCkH5NsPaKQTcy",  # Binance
+    "rGtW6G759bNNS72QKazhuVoEY16rPot9EG",  # Bit-Z
+    "rPSJ1TdurLDkgiptGUgvGii72tWto2cQBA",  # BitForex
+    "rGosnFbyfdSmMBBf7XX9Jrn9v5f7Bb5LHx",  # BitMax
+    "rHkNWoqyea4HpMKzJJ66d7fgg2xLZV1Jg3",  # Bitay
+    "r9d2b9dhS3tdyGcdxcwgW6kagLMvKsdtMp",  # Bitberry
+    "rKLnxheMUEeGyD2s7hD6wKPiTYdybC1Bzv",  # Bitbns
+    "r4VaPEKo4XoU27bCREgsTdbfKrKwNxJ1Cm",  # Bitbns
+    "rGDreBvnHrX1get7na3J4oowN19ny4GzFn",  # Bitget Global
+    "rEtC4xAYJvtwDLJ9jZ4kHRHKbNoLLxSnfb",  # Bithumb
+    "rNTkgxs5WG5mU5Sz26YoDVrHim5Y5ohC7",   # Bithumb
+    "rDgP14awuo2bGhmdMRbBaJRp1dVMM1pCvK",  # Bitladon
+    "rf6NHmj8ADHCE13RxuMSeRmdoMBCpa4WXd",  # Bitlo
+    "rJvBpqnsi3VGFnoJLjK9HysEzXn8ykYZ2w",  # BitoPro
+    "raLPjTYeGezfdb6crXZzcC8RkLBEwbBHJ5",  # Bitrue
+    "rGFuMiw48HdbnrUbkRYuitXTmfrDBNTCnX",  # Bitstamp
+    "rpAutLriSEdPS8brFQoCyK1HqN1nDw5ipD",  # Bityard
+    "rDWLx1Z9xQsYeyX8apW9NAs2ivxEeJwjzB",  # BuyUcoin
+    "rMrgNBrkE6FdCjWih5VAWkGMrmerrWpiZt",  # Bybit
+    "rJn2zAPdFA193sixJwuFixRkYDUtx3apQh",  # Bybit
+    "raqwG6TnXgjsRHq9gr34ZYeniHUS3ai33z",  # Caramba XRP Wallet
+    "r9m6MwViR4GnUNqoGXGa8eroBrZ9FAPHFS",  # ChangeHero
+    "rpp3ntAuXo24Ne2qvPs52mcciXe7Zy6Wcf",  # Changelly
+    "raTjYCE2ForijAiCsjywXQ3WTq58U42gyq",  # CoinCola
+    "raSLkv529QyqKAPLK1z3mDsNa8a6RLt2ok",  # CoinDCX
+    "r31r8Z93jwWwZfuDwo8XzSJCQvLX8qAy3W",  # CoinDeal
+    "rwNqWuAYXvkyyTjybKFze5F3ekZXULSz8J",  # CoinField
+    "rPyFs5kpbiiawSdP9JGdaYM33zfUUah1TY",  # CoinGate
+    "rBgnUKAEiFhCRLPoYNPPe3JUWayRjP6Ayg",  # CoinSpot
+    "rwpTh9DDa52XkM9nTKp2QrJuCGV5d1mQVP",  # Coinbase
+    "r3YsZdkznVzYBv141qhwXHDWoPUXLdksNw",  # Coinbase
+    "r4sRyacXpbh4HbagmgfoQq8Q3j8ZJzbZ1J",  # Coinbase
+    "r9QA3mVFQ7V4CE8uGVaeGGDGgeAFc8rsPF",  # Coindelta
+    "r9gKYg9H2HJu5arFmRw14VhZSkqVtBD9V7",  # Coinsbit
+    "r33A7DdKzxenN7dNowJhXDhpr5y5H8CnBT",  # Coinsuper
+    "rPHNKf25y3aqATYfrMv9LQnTRHQUYELXfn",  # Crypto.com
+    "rKV8HEL3vLc6q9waTiJcewdRdSFyx67QFb",  # Crypto.com
+    "rLW9fNRyv6pxz6Skr8BsCP7PEWNG3vUvLT",  # Dcoin
+    "rnG2XVwdULE5mfWA5EFxnyTkUGgg2K39AP",  # DigiFinex
+    "rAPERVgXZavGgiGv6xBgtiZurirW2yAmY",   # Dropz
+    "rhhCb6u4dKPrm39erK2u8WGKuPh5DSuyxn",  # EMAGIC
+    "rB1za2ZVgDnNB7u8LbVN61k5nCByBUtXCA",  # Eobot
+    "rpTxdXAm6AcW8S6ewpGeccKaMXcppz7kVZ",  # Exrates
+    "rav4ti22NyMgD1WbGKoRy62hUL75dq8w4u",  # GMO Coin
+    "rJWmcHHjFJatBEQd3R6B6rE3WvSpxCiTpP",  # GOEX
+    "r4LjTj87UYbz7zHx6T1nBuVg8oHwBYLfob",  # GigaBet
+    "rskZBJCS5ZygxsP2tAZ2gRCwSuyh9dgaXM",  # HBTC
+    "rNWLvz9K5bgNcLwUDPAKgnmfopZx3zSvg3",  # HBTC
+    "rGzqpy3BaFNcXXqYsKAhFp4HNJGnLFZdnb",  # HOTBIT
+    "ryhodNXe7dS1QSJJhR8EqniDNh56CiReC",   # IDAX
+    "r4FhxAcdu5UPiFY5FSYtrEKigHdcSysRdu",  # INDX
+    "rrpai2TwrdPn7UDjfTpCsyJCRtfKiPvuFK",  # NDAX
+    "rwWr7KUZ3ZFwzgaDGjKBysADByzxvohQ3C",  # Indodax
+    "rGoPEumGn3SJsxttBJscndgSJojJwi4Rr2",  # InstaShift
+    "rnZUmzP9Lui7VHL9vAwpWZbqYkcxe3U93m",  # IntercoinX
+    "rLdinLq5CJood9wdjY9ZCdgycK8KGevkUj",  # Koinex
+    "rNFugeoj3ZN8Wv6xhuLegUBBPXKCyWLRkB",  # KuCoin
+    "rEW8BjpMyFZfGMjqbykbhpnr4KEb2qr6PC",  # KuCoin
+    "rMtb2JEX8xmcgSKxCB7aZPDyzyVhbM2RzV",  # Kuna
+    "rNg5DoPJmPiHqfqQVZngi6B9PyVnmoFWzF",  # L7 Trade
+    "rnZwDSjUvyYnKm2iQcdP4WtcGYsx2QD3A6",  # LATOKEN
+    "rENMoQvSHtb8sZwsxfefSGNZ7RQ89pd93H",  # Liquid
+    "rQL3rmtijDT33ytPXdJd41bG3Rpa2ZyfqN",  # LuckyFish
+    "rK7LSKygRUu9y9xcuhkWbcMRKRF5HVWwVL",  # Luckygames
+    "rs4zfQ4vNyYsfpL6GaJ7in7mnuDDzYjGgs",  # Netex24
+    "r9Knt1X7s4kTtmLiCTEairzAbmZoXnU8GQ",  # Netex24
+    "rnuPTVikw8HKK4hBGCtnq2J2433VYaZPZQ",  # Nexo
+    "rHxtRRUMVAnPZUyRgXhRSyWZ2MrHx8AvVs",  # NovaDAX
+    "rUzWJkXyEtT8ekSSxkBYPqCvHpngcy6Fks",  # OKEx
+    "r4YC1aD49aHtm33Az1vxhfBbLp3VCkvEuT",  # OTCBTC
+    "rhQrkgoV4uza557mW6HbBWMtTDkB7u5yrs",  # Orionx
+    "rKvAtitwmaYVFG8GwDmUSyqo71YMbeBSwn",  # PDAX
+    "rKdDdrbU3MedsG7VtBAir4RjC35tzjDZnr",  # Paribu
+    "rHWcuuZoFvDS6gNbmHSdpb7u1hZzxvCoMt",  # Paribu
+    "rshvnxLDE9Jsm8sJxPxct425HhQC2tk5CV",  # Payeer
+    "ra9eZxMbJrUcgV8ui7aPc161FgrqWScQxV",  # Peercover
+    "rLMAAuqJowC5yMccaPnappeLM8vDfdiDTg",  # Phemex
+    "rw5z4hdpz6qUyjGXSZwfyAVZHK7r3hsbPz",  # Pionex
+    "r3a44BXpsPN7z6dKLgsCzjodkzREpsqotT",  # Primedice
+    "rnNQs4WAKUHes7kJtqqRiU3Wq9q1pHuDEt",  # Quidax
+    "rajgeXpN88PNquRcaBXKH7uuVsPMq7aP47",  # RippleCN
+    "rHxsZo42NrTq1hC9dcnS8KAuvc8LrNdbpn",  # Roqqu
+    "r97GkTsoEbQ4HbXnkssVeMK3bxtcre7Az2",  # Satang Pro
+    "rwfGzgd4bUStS9gA5xUhCmg1J86TMtmGMo",  # ShapeShift
+    "rEmveBC81cquEgq6as8fj3KjuYm8972VSc",  # SimpleSwap
+    "r9QpV5xyfgKHmcWXnfDZJZg7niP5tjhyNb",  # SimpleSwap
+    "rf4wZgPXBB2j7PWnsuFhkuidmTN75ZnudP",  # SistemKoin
+    "rMo2aHtuUSAXe4TpJFuiRMH43xtTwvu13G",  # SportsBetting.ag
+    "rnqZnvzoJjdg7n1P9pmumJ7FQ5wxNH3gYC",  # Stake
+    "razLtrbzXVXYvViLqUKLh8YenGLJid9ZTW",  # Stake
+    "rBndy89HdamJ3UHNekAS6ALjW9WoCE2W5s",  # Stakeus
+    "rMkfgicNKuCfXojDhcX4W2LnGoHFqhFrr6",  # Stratum
+    "rToastMYRQh8boeo5Ys1CnPySmt3c9x3Y",   # Toast Wallet
+    "rEahGW5VLYQH2vGBfFmbv9BBpWSTDoukGR",  # UPbit
+    "rBszWJzYpNoqoY4xKuGUpN23b6EBT41ocF",  # UPbit
+    "rJYQKfsTi8XCLZ1vGSf9CxiL4prz5bvbtz",  # UPbit
+    "rEVrb2XPMxs3Wq1zKgFaYZers9nKCWUNd5",  # UPbit
+    "raQwCVAJVqjrVm1Nj5SFRcX8i22BhdC9WA",  # UPbit
+    "rf5bXWkMj9iva8QGupNREgWptbvwWJCxL9",  # UPbit
+    "rfpbRmkL6uUAPUG9zQEgTTxBr7drihXndi",  # UPbit
+    "rwuAm7XdcP3SBwgJrVthCvCzU7kETJUUit",  # WazirX
+    "rNxCw7HUbd51dvUMUyC7ju5XivXmCM1Bvr",  # WazirX
+    "rUuQJ8oPkR6eCC81C8kgyxPMZCLTJokXxs",  # WestWallet
+    "rfwWwz7yrvBCVY1RWdnZ4Uk1va7WpiWxNX",  # XRP.io
+    "rPBMDP7CGiKzMvPx6SsCGgeDsrsUyv1K1b",  # Yobit
+    "rPR82pZSV8xKWukAkvaoKKVn2W9eNBN97s",  # abcc
+    "rEDavo5NTm8ct5WfiNRDz1QP75Y5d62zj5",  # btb.io
+    "rxcAtcu1RfMLjFbmQJfoYNr3BHopJr3WA",   # d-obmen.cc
+    "rsVrxrWo3xreoBLQweUchD3pABS6eYHeKu",  # fatbtc
+    "rpJrC46bPSUiWwTuuRGSiqHdSaCNWTFBZv",  # jubi.com
 }
 
 # Track last transaction time for rate limiting
@@ -364,7 +489,7 @@ def get_next_wallet_file():
 def get_latest_wallet_file():
     files = []
     for fname in os.listdir(wallets_dir):
-        if fname.startswith("xrpurr_wallet") and fname.endswith(".dat"):
+        if fname.lower().startswith("xrp") and fname.endswith(".dat"):
             files.append(os.path.join(wallets_dir, fname))
     if not files:
         return os.path.join(wallets_dir, "xrpurr_wallet.dat")
@@ -472,12 +597,12 @@ def getGreeting():
         "Sawubona kusihlwa", "Dobrý večer", "Hyvää iltaa", "Dobry wieczór", "İyi akşamlar"
     ]
     nightVariants = [
-        "Hello", "Hola", "Hallo", "Salut", "Ciao", "やあ", "Привет", "Olá",
+        "Hello!", "Hola", "Hallo", "Salut", "Ciao", "やあ", "Привет", "Olá",
         "مرحبا", "Hej", "سلام", "Përshëndetje", "Bongu", "Bite", "Ndewo",
         "Sawubona", "Ahoj", "Moi", "Cześć", "Merhaba", "ښه شپه ولری"
     ]
     genericVariants = [
-    "X R P", "XRP!", "$200 xrp moon", "im not coping", "The midnight hour!"
+    "X R P", "XRP!", "$200 xrp moon", "im not coping", "The midnight hour!", "wasn't xrp just $2?", "that's so xrp", "rip rip rip"
     ]
     # get the time to send the right message
     now = datetime.now().hour
@@ -553,6 +678,7 @@ def saveWalletSeed(seed):
         print("cryptography module not installed. Cannot encrypt wallet seed.")
         clear_screen()
         return
+    print("Note: XRP wallets are named xrp*.dat. Nano wallets use nano*.dat.")
     password = getpass.getpass("Set a password to encrypt your wallet: ")
     password2 = getpass.getpass("Confirm password: ")
     if password != password2:
@@ -570,13 +696,13 @@ def saveWalletSeed(seed):
 
 def deleteWalletFile():
     clear_screen()
-    # List wallet files
-    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+    # List XRP wallet files only
+    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat") and f.lower().startswith("xrp")]
     if not wallet_files:
-        print("No wallet file found to delete.")
+        print("No XRP wallet file found to delete.")
         clear_screen()
         return
-    print("Wallet files in your wallets directory:")
+    print("XRP wallet files (xrp*.dat):")
     for idx, fname in enumerate(wallet_files, 1):
         print(f"  {idx}. {fname}")
     print("a. All wallet files")
@@ -617,10 +743,11 @@ def deleteWalletFile():
 def loadWallet():
     clear_screen()
     # List wallet files
-    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+    wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat") and f.lower().startswith("xrp")]
     wallet_files.sort(key=lambda x: os.path.getmtime(os.path.join(wallets_dir, x)), reverse=True)
     default_file = os.path.join(wallets_dir, "xrpurr_wallet.dat")
-    print("Wallet files in your wallets directory:")
+    print("XRP wallet files (xrp*.dat):")
+    print("  (Nano wallets use nano*.dat and won't appear here)")
     if wallet_files:
         for idx, fname in enumerate(wallet_files, 1):
             print(f"  {idx}. {fname}")
@@ -745,32 +872,8 @@ def getBalance(address):
         return 0
 
 def fetch_dtag_accounts_without_flag():
-    """
-    Fetches the list of accounts without the RequireDest flag set from the API.
-    Caches the result for 5 minutes to avoid excessive requests.
-    Returns a set of addresses.
-    """
-    global _DTAG_ACCOUNTS_CACHE
-    now = time.time()
-    # Cache for 30 minutes
-    if (_DTAG_ACCOUNTS_CACHE["accounts"] is not None and
-        now - _DTAG_ACCOUNTS_CACHE["last_fetch"] < 3000):
-        return _DTAG_ACCOUNTS_CACHE["accounts"]
-    url = "https://xrpl.ws-stats.com/lists/f:dtag_accounts_without_flag"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = response.read().decode("utf-8-sig")
-            reader = csv.reader(StringIO(data))
-            header = next(reader, None)  # skip header
-            accounts = [row[1] for row in reader if len(row) > 1]
-            accounts_set = set(accounts)
-            _DTAG_ACCOUNTS_CACHE["accounts"] = accounts_set
-            _DTAG_ACCOUNTS_CACHE["last_fetch"] = now
-            return accounts_set
-    except Exception as e:
-        print(f"Warning: Could not fetch destination tag account list: {e}")
-        time.sleep(3.5)
-        return set()
+    """Return hardcoded set of exchange addresses."""
+    return DTAG_ACCOUNTS
 
 def sendXrp(wallet, destination, amountXrp, destinationTag=None):
     global _LAST_TX_TIME
@@ -1341,12 +1444,12 @@ def delete_wallet_account_menu(wallet):
         elif choice == "2":
             # Secure wallet deletion
             print("Permanently delete current wallet (secure wipe)")
-            wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat")]
+            wallet_files = [f for f in os.listdir(wallets_dir) if f.endswith(".dat") and f.lower().startswith("xrp")]
             if not wallet_files:
-                print("No wallet file found to delete.")
+                print("No XRP wallet file found to delete.")
                 pause()
                 continue
-            print("Wallet files in your wallets directory:")
+            print("XRP wallet files (xrp*.dat):")
             for idx, fname in enumerate(wallet_files, 1):
                 print(f"  {idx}. {fname}")
             idx = input("Select wallet file to delete (number): ").strip()

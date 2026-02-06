@@ -1,9 +1,50 @@
-# xrpurr
+# Purrpay Wallets
+
+From now on, this project will be referred to as Purrpay Wallets (Software), since it includes more than a single currency and is two separate wallets. When they are exe-ified, they will be in distinct repos and will be linked.
 
 ## Updates
 
 
-9/20/2025: Version 1.2
+
+
+
+### 2/7/2026: Version 1.5 Xrpurr
+
+I had trouble finding a good easy to use nano wallet online and I wanted to start holding some. They all seem abandoned or too hard to use (registration? mobile only? cmon) Seemed good a time as ever. Other bugfixes and validation done, and improvements to the vanity finders. Includes a vanity finder for nano as well. 
+
+Serious updates to xrpurr: tx validation in instances where it *appears* that an endpoint failed but it really didn't, instead of hastily re-making the tx, it will check first and make sure it didn't go through to avoid double spending. I already implemented this previously but it's fully verified now.
+
+The next version of XRPurr will be the XRPurr GUI + executible, which will be XRPurr 2.0. 
+
+# **Nanopurr is here!**
+
+## **Nanopurr is now available for testing!**
+### 2/7/2026: Version 0.9 Nanopurr!
+
+Nano (XNO) is a lesser known alt cryptocurrency with no fee and instant transaction times. I would argue it's even faster than XRP, but it also still relies on *proof-of-work* for authorizing transactions, so this is less than ideal for a scaled up use case. Some websites use it, including one I use frequently, NanoGPT 
+
+Nanopurr is exactly like XRPurr, a simple CLI-based wallet with functional send/receive features and a no-frills spartan user experience and ui. It is very simple, like XRPurr: click send, type in address, send amount, go! This is still in testing, so your mileage may vary, and there may be bugs (that could include errors in spend or transactions!), so be wary. However, it did successfuly do all of its basics. If you find any issues, please open one here so I can get eyes on it. 
+
+Nanopurr will be getting the same treatment as XRPurr: version 1.0 will be the CLI only version, and 2.0 will be a similar GUI implementation as XRPurr. For completeness, I may also make an XLM wallet as well. 
+
+I had to recently build a Sol wallet for MiaBot's game payment system, so that is also on the horizon.
+
+While not many people use this, I'm sure once it is more usable and doesn't require a git clone to use, it'll be helpful for some. Wallets these days are absolutely insane with how bloated they are. 
+
+Thanks! 
+
+-- Ruby
+
+
+
+____________
+## Previous XRPurr Update Notes
+
+### 9/24/2025: Version 1.3
+Small update, which now checks addresses for validity, when sending. If it's an invalid xrp address, such as putting in an eth or sol address, it will warn the user.
+
+
+### 9/20/2025: Version 1.2
 I'm sad I wasn't able to work on this much, but I have not had ANY issues since the last time and I have used it regularly. Therefore, I am continuing this project towards hopefully an executible release, as well as a timelock vault.
 Everything has been cleaned up and optimized
 Erroneous error messages and unhelpful ones have been rewritten
@@ -11,15 +52,15 @@ The settings menu was reorganized and cleaned up
 No more annyoing y/n prompts: just do what you intend to
 Soon: timevault. I think this is really important! 
 
-8/7/2025: Hotfix 1.1a
+### 8/7/2025: Hotfix 1.1a
 Added validation for instances where the node fails, it falls back, but the node actually didn't fail; and it ends up double sending. This seemed to happen in fringe cases where the primary node. I already pushed an update which should solve this, but be wary.
 
-7/16/2025: Version 1.1
+### 7/16/2025: Version 1.1
 Fixed json txlog issue (it will no longer error or malform i hope!)
 Now show spendable balance on send xrp screen (doesnt include reserve amount in total)
 
 
-7/11/2025: Version 1.0
+### 7/11/2025: Version 1.0
 I had issues with the main xrpl node today, and couldn't sign any transactions. So I had to add some redundancy when it fails to send a transaction, it will attempt to connect to a different node and send it. 
 
 Instructions:
@@ -36,7 +77,7 @@ notepad $PROFILE
 and enter this: (alternatively, python or python3 as the beginning)
 ```
 function xrp {
-	py C:\path\to\the\repo\xrpurr\xrpurr.py
+	py C:\path\to\xrpurr\xrpurr.py
 }	
 ```
 
