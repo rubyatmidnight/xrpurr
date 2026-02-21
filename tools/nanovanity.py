@@ -62,7 +62,7 @@ def worker_process(prefix_bytes, case_sensitive, worker_id, result_queue, stop_f
     stats_dict[worker_id] = attempts
 
 
-def validate_nano_prefix(prefix):
+def validate_nano_prefix(prefix, case_sensitive=False):
     """Validate prefix, return error string or None."""
     if not prefix.startswith("nano_"):
         return "Prefix must start with 'nano_'."
@@ -87,7 +87,11 @@ def validate_nano_prefix(prefix):
         'L': '1', 'V': 'u',
     }
     for c in after:
-        if c.lower() not in NANO_BASE32:
+        if case_sensitive:
+            valid = c in NANO_BASE32
+        else:
+            valid = c.lower() in NANO_BASE32
+        if not valid:
             hint = suggestions.get(c, '')
             bad_chars.append((c, hint))
 
@@ -150,16 +154,16 @@ def main():
     if not prefix:
         prefix = input("Enter desired prefix (e.g., nano_1mia or nano_1cat): ").strip()
 
-    err = validate_nano_prefix(prefix)
-    if err:
-        print(err)
-        return
-
     if args.case_sensitive:
         caseSensitive = True
     else:
         caseSel = input("Case sensitive match? (y/N): ").strip().lower()
         caseSensitive = caseSel == "y"
+
+    err = validate_nano_prefix(prefix, caseSensitive)
+    if err:
+        print(err)
+        return
 
     cpuTotal = os.cpu_count() or 4
     if args.threads > 0:

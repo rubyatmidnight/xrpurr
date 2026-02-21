@@ -333,7 +333,6 @@ DTAG_ACCOUNTS = {
     "rwWr7KUZ3ZFwzgaDGjKBysADByzxvohQ3C",  # Indodax
     "rGoPEumGn3SJsxttBJscndgSJojJwi4Rr2",  # InstaShift
     "rnZUmzP9Lui7VHL9vAwpWZbqYkcxe3U93m",  # IntercoinX
-    "rLdinLq5CJood9wdjY9ZCdgycK8KGevkUj",  # Koinex
     "rNFugeoj3ZN8Wv6xhuLegUBBPXKCyWLRkB",  # KuCoin
     "rEW8BjpMyFZfGMjqbykbhpnr4KEb2qr6PC",  # KuCoin
     "rMtb2JEX8xmcgSKxCB7aZPDyzyVhbM2RzV",  # Kuna
@@ -362,9 +361,6 @@ DTAG_ACCOUNTS = {
     "rHxsZo42NrTq1hC9dcnS8KAuvc8LrNdbpn",  # Roqqu
     "r97GkTsoEbQ4HbXnkssVeMK3bxtcre7Az2",  # Satang Pro
     "rwfGzgd4bUStS9gA5xUhCmg1J86TMtmGMo",  # ShapeShift
-    "rEmveBC81cquEgq6as8fj3KjuYm8972VSc",  # SimpleSwap
-    "r9QpV5xyfgKHmcWXnfDZJZg7niP5tjhyNb",  # SimpleSwap
-    "rf4wZgPXBB2j7PWnsuFhkuidmTN75ZnudP",  # SistemKoin
     "rMo2aHtuUSAXe4TpJFuiRMH43xtTwvu13G",  # SportsBetting.ag
     "rnqZnvzoJjdg7n1P9pmumJ7FQ5wxNH3gYC",  # Stake
     "razLtrbzXVXYvViLqUKLh8YenGLJid9ZTW",  # Stake
@@ -1536,7 +1532,7 @@ def developer_settings_menu():
         elif choice == "4":
             print("Developer contact info:")
             print("GitHub: https://github.com/rubyatmidnight/xrpurr")
-            print("Email: rubyaftermidnight@gmail.com")
+            print("Contact: open a GitHub issue")
             pause()
         elif choice == "b":
             clear_screen()
@@ -1596,7 +1592,7 @@ def show_dev_info():
     print(f"Python version: {os.sys.version}")
     print(f"Developer Info: ruby")
     print(f"Repo: https://github.com/rubyatmidnight/xrpurr")
-    print(f"Contact: rubyaftermidnight@gmail.com")
+    print(f"Contact: open a GitHub issue")
     print("\nPress Enter to return to settings menu.")
     input()
     clear_screen()

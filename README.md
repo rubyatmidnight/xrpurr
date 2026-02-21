@@ -5,9 +5,6 @@ From now on, this project will be referred to as Purrpay Wallets (Software), sin
 ## Updates
 
 
-
-
-
 ### 2/7/2026: Version 1.5 Xrpurr
 
 I had trouble finding a good easy to use nano wallet online and I wanted to start holding some. They all seem abandoned or too hard to use (registration? mobile only? cmon) Seemed good a time as ever. Other bugfixes and validation done, and improvements to the vanity finders. Includes a vanity finder for nano as well. 
@@ -191,6 +188,6 @@ These are some nice extra tools I had a need for, and do their job. They don't n
 
 ## Further improvements?
 
-- If you have any suggestions for additional features or UX improvements, feel free to open an issue or email me at <ruby@stakestats.net>.
+- If you have any suggestions for additional features or UX improvements, feel free to open an issue.
 
 - Remember this is a small project and nothing professional. I think it's still faster than most though
