@@ -5,7 +5,13 @@ From now on, this project will be referred to as Purrpay Wallets (Software), sin
 ## Updates
 
 
-### 2/7/2026: Version 1.5 Xrpurr
+### Important!
+
+- 1.Because nanopurr and xrpurr currently use the same wallet folder, please prefix your wallet file with xrp for xrpurr or nano for nanopurr, so that they are only detected by the correct wallet. For example: xrp_wallet.dat will be detected by xrpurr, but xr_wallet.dat will not be. If your wallets suddenly disappear, please do this. 
+
+- 2. Nanopurr needs nano_crypto.py in the same folder as nanopurr.py, or else it will not work. 
+
+### 2/21/2026: Version 1.5 Xrpurr
 
 I had trouble finding a good easy to use nano wallet online and I wanted to start holding some. They all seem abandoned or too hard to use (registration? mobile only? cmon) Seemed good a time as ever. Other bugfixes and validation done, and improvements to the vanity finders. Includes a vanity finder for nano as well. 
 
@@ -16,7 +22,7 @@ The next version of XRPurr will be the XRPurr GUI + executible, which will be XR
 # **Nanopurr is here!**
 
 ## **Nanopurr is now available for testing!**
-### 2/7/2026: Version 0.9 Nanopurr!
+### 2/21/2026: Version 0.9 Nanopurr!
 
 Nano (XNO) is a lesser known alt cryptocurrency with no fee and instant transaction times. I would argue it's even faster than XRP, but it also still relies on *proof-of-work* for authorizing transactions, so this is less than ideal for a scaled up use case. Some websites use it, including one I use frequently, NanoGPT 
 
