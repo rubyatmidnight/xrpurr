@@ -7,9 +7,11 @@ From now on, this project will be referred to as Purrpay Wallets (Software), sin
 
 ### Important!
 
-- 1.Because nanopurr and xrpurr currently use the same wallet folder, please prefix your wallet file with xrp for xrpurr or nano for nanopurr, so that they are only detected by the correct wallet. For example: xrp_wallet.dat will be detected by xrpurr, but xr_wallet.dat will not be. If your wallets suddenly disappear, please do this. 
+1. Because nanopurr and xrpurr currently use the same wallet folder, please prefix your wallet file with xrp for xrpurr or nano for nanopurr, so that they are only detected by the correct wallet. For example: xrp_wallet.dat will be detected by xrpurr, but xr_wallet.dat will not be. If your wallets suddenly disappear, please do this. 
 
-- 2. Nanopurr needs nano_crypto.py in the same folder as nanopurr.py, or else it will not work. 
+2. Nanopurr needs nano_crypto.py in the same folder as nanopurr.py, or else it will not work. 
+
+3. Be sure to make a backup of your wallets + this file before updating with git pull.
 
 ### 2/21/2026: Version 1.5 Xrpurr
 
